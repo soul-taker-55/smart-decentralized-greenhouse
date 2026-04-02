@@ -11,5 +11,16 @@ This project presents an autonomous greenhouse system leveraging IoT devices, ed
 - Autonomous Control
 - Zero Trust Architecture
 
+## System Architecture
+
+The system is designed as a decentralized IoT architecture consisting of:
+
+- Device Layer (ESP32 sensors & actuators)
+- Edge Layer (local decision-making)
+- Communication Layer (MQTT over secure channels)
+- Control Layer (automation logic)
+- Monitoring Layer (dashboard & analytics)
+
+
 ## Status
 🚧 Under Development
