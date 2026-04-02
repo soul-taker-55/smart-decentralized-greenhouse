@@ -21,6 +21,13 @@ The system is designed as a decentralized IoT architecture consisting of:
 - Control Layer (automation logic)
 - Monitoring Layer (dashboard & analytics)
 
+## Team
+- Ahmad Shaaban
+- Dalaa Hag Mohammed
+- Elias Zikra
+- Maram Faisal Mohammed
+- Mauricio Sayegh
+- Omar Sawas
 
 ## Status
 🚧 Under Development
