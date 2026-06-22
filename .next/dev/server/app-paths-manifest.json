@@ -1,0 +1,9 @@
+{
+  "/page": "app/page.js",
+  "/climate-air/page": "app/climate-air/page.js",
+  "/soil-irrigation/page": "app/soil-irrigation/page.js",
+  "/water-system/page": "app/water-system/page.js",
+  "/energy-hub/page": "app/energy-hub/page.js",
+  "/alerts-center/page": "app/alerts-center/page.js",
+  "/weather-forecast/page": "app/weather-forecast/page.js"
+}
