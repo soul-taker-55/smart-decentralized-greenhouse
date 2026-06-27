@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>لوحة تحكم مستشعرات ESP32</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f7f6;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        h1 { text-align: center; color: #2c3e50; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+        .card {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            text-align: center;
+            transition: transform 0.2s;
+        }
+        .card:hover { transform: translateY(-5px); }
+        .card h3 { margin: 0 0 10px 0; color: #7f8c8d; font-size: 16px; }
+        .card .value { font-size: 28px; font-weight: bold; color: #2c3e50; }
+        .status-on { color: #2ecc71 !important; }
+        .status-off { color: #e74c3c !important; }
+        
+        /* تنسيق حاوية الرسم البياني */
+        .chart-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-top: 30px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>لوحة تحكم نظام الـ ESP32 الحية 🌡️⚡</h1>
+        
+        <div class="grid">
+            <div class="card">
+                <h3>درجة حرارة المحيط</h3>
+                <div class="value" id="temp">-- °C</div>
+            </div>
+            <div class="card">
+                <h3>رطوبة المحيط</h3>
+                <div class="value" id="humidity">-- %</div>
+            </div>
+            <div class="card">
+                <h3>رطوبة التربة</h3>
+                <div class="value" id="soil">-- %</div>
+            </div>
+            <div class="card">
+                <h3>شدة الإضاءة</h3>
+                <div class="value" id="light">-- Lux</div>
+            </div>
+            <div class="card">
+                <h3>مضخة المياه</h3>
+                <div class="value" id="pump">--</div>
+            </div>
+            <div class="card">
+                <h3>مروحة العادم</h3>
+                <div class="value" id="fan">--</div>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <canvas id="realTimeChart" height="100"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // 1. إعداد وتجهيز الرسم البياني فارغاً عند تحميل الصفحة
+        const ctx = document.getElementById('realTimeChart').getContext('2d');
+        const myChart = new Chart(ctx, {
+            type: 'line', // نوع المخطط: خطي
+            data: {
+                labels: [], // سيحتوي على التوقيت (Timestamps)
+                datasets: [
+                    {
+                        label: 'درجة الحرارة (°C)',
+                        data: [],
+                        borderColor: '#e74c3c',
+                        backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3 // لجعل الخط منحنياً وانسيابياً
+                    },
+                    {
+                        label: 'رطوبة التربة (%)',
+                        data: [],
+                        borderColor: '#3498db',
+                        backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                        borderWidth: 2,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            }
+        });
+
+        // 2. دالة جلب البيانات وتحديث الـ Cards والمخطط
+        function fetchLatestData() {
+            fetch('http://localhost:3000/api/sensors/latest')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) return;
+
+                    // تحديث البطاقات
+                    document.getElementById('temp').innerText = `${data.sensors.ambientTemperature} °C`;
+                    document.getElementById('humidity').innerText = `${data.sensors.ambientHumidity} %`;
+                    document.getElementById('soil').innerText = `${data.sensors.soilMoisture} %`;
+                    document.getElementById('light').innerText = `${data.sensors.lightIntensity} Lux`;
+
+                    const pumpEl = document.getElementById('pump');
+                    pumpEl.innerText = data.actuatorsStatus.waterPump;
+                    pumpEl.className = data.actuatorsStatus.waterPump === 'ON' ? 'value status-on' : 'value status-off';
+
+                    const fanEl = document.getElementById('fan');
+                    fanEl.innerText = data.actuatorsStatus.exhaustFan;
+                    fanEl.className = data.actuatorsStatus.exhaustFan === 'ON' ? 'value status-on' : 'value status-off';
+
+                    // 3. تحديث الرسم البياني بالبيانات الحية
+                    const timeLabel = new Date(data.timestamp).toLocaleTimeString('ar-EG');
+                    
+                    // تجنب تكرار إضافة نفس القراءة إذا لم تتغير البيانات القادمة
+                    if (!myChart.data.labels.includes(timeLabel)) {
+                        myChart.data.labels.push(timeLabel); // إضافة الوقت أسفل المحور س
+                        myChart.data.datasets[0].data.push(data.sensors.ambientTemperature); // إضافة الحرارة
+                        myChart.data.datasets[1].data.push(data.sensors.soilMoisture); // إضافة رطوبة التربة
+
+                        // حد أقصى للنقاط المعروضة (مثلاً آخر 7 قراءات) لكي لا يزدحم الرسم البياني
+                        if (myChart.data.labels.length > 7) {
+                            myChart.data.labels.shift(); // حذف أقدم وقت
+                            myChart.data.datasets[0].data.shift(); // حذف أقدم قيمة حرارة
+                            myChart.data.datasets[1].data.shift();
+                        }
+
+                        myChart.update(); // أمر إجباري للمكتبة لإعادة رسم المخطط بالقيم الجديدة
+                    }
+                })
+                .catch(err => console.error('خطأ في جلب البيانات:', err));
+        }
+
+        fetchLatestData();
+        setInterval(fetchLatestData, 3000);
+    </script>
+</body>
+</html>
