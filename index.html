@@ -52,11 +52,11 @@
         
         <div class="grid">
             <div class="card">
-                <h3>درجة حرارة المحيط</h3>
+                <h3>درجة حرارة المحيط الداخلي</h3>
                 <div class="value" id="temp">-- °C</div>
             </div>
             <div class="card">
-                <h3>رطوبة المحيط</h3>
+                <h3>رطوبة المحيط الداخلي</h3>
                 <div class="value" id="humidity">-- %</div>
             </div>
             <div class="card">
@@ -64,7 +64,7 @@
                 <div class="value" id="soil">-- %</div>
             </div>
             <div class="card">
-                <h3>شدة الإضاءة</h3>
+                <h3>شدة الإضاءة الداخلية</h3>
                 <div class="value" id="light">-- Lux</div>
             </div>
             <div class="card">
@@ -72,7 +72,7 @@
                 <div class="value" id="pump">--</div>
             </div>
             <div class="card">
-                <h3>مروحة العادم</h3>
+                <h3>مروحة العادم الجنوبية</h3>
                 <div class="value" id="fan">--</div>
             </div>
         </div>
@@ -91,7 +91,7 @@
                 labels: [], // سيحتوي على التوقيت (Timestamps)
                 datasets: [
                     {
-                        label: 'درجة الحرارة (°C)',
+                        label: 'درجة الحرارة الداخلية (°C)',
                         data: [],
                         borderColor: '#e74c3c',
                         backgroundColor: 'rgba(231, 76, 60, 0.1)',
@@ -118,33 +118,33 @@
 
         // 2. دالة جلب البيانات وتحديث الـ Cards والمخطط
         function fetchLatestData() {
-            fetch('http://localhost:3000/api/sensors/latest')
+            fetch('http://localhost:3000/api/greenhouse/latest')
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) return;
 
-                    // تحديث البطاقات
-                    document.getElementById('temp').innerText = `${data.sensors.ambientTemperature} °C`;
-                    document.getElementById('humidity').innerText = `${data.sensors.ambientHumidity} %`;
-                    document.getElementById('soil').innerText = `${data.sensors.soilMoisture} %`;
-                    document.getElementById('light').innerText = `${data.sensors.lightIntensity} Lux`;
+                    // تحديث البطاقات بأسماء الأعمدة الصحيحة من الـ Database
+                    document.getElementById('temp').innerText = `${data.sensors.dht11_inner_temp} °C`;
+                    document.getElementById('humidity').innerText = `${data.sensors.dht11_inner_hum} %`;
+                    document.getElementById('soil').innerText = `${data.sensors.water_sensor_1} %`;
+                    document.getElementById('light').innerText = `${data.sensors.ldr_inner} Lux`;
 
                     const pumpEl = document.getElementById('pump');
-                    pumpEl.innerText = data.actuatorsStatus.waterPump;
-                    pumpEl.className = data.actuatorsStatus.waterPump === 'ON' ? 'value status-on' : 'value status-off';
+                    pumpEl.innerText = data.actuators.water_pump;
+                    pumpEl.className = data.actuators.water_pump === 'ON' ? 'value status-on' : 'value status-off';
 
                     const fanEl = document.getElementById('fan');
-                    fanEl.innerText = data.actuatorsStatus.exhaustFan;
-                    fanEl.className = data.actuatorsStatus.exhaustFan === 'ON' ? 'value status-on' : 'value status-off';
+                    fanEl.innerText = data.actuators.south_fan;
+                    fanEl.className = data.actuators.south_fan === 'ON' ? 'value status-on' : 'value status-off';
 
-                    // 3. تحديث الرسم البياني بالبيانات الحية
-                    const timeLabel = new Date(data.timestamp).toLocaleTimeString('ar-EG');
+                    // 3. تحديث الرسم البياني بالبيانات الحية بناءً على تاريخ الحفظ
+                    const timeLabel = new Date(data.sensors.created_at).toLocaleTimeString('ar-EG');
                     
                     // تجنب تكرار إضافة نفس القراءة إذا لم تتغير البيانات القادمة
                     if (!myChart.data.labels.includes(timeLabel)) {
                         myChart.data.labels.push(timeLabel); // إضافة الوقت أسفل المحور س
-                        myChart.data.datasets[0].data.push(data.sensors.ambientTemperature); // إضافة الحرارة
-                        myChart.data.datasets[1].data.push(data.sensors.soilMoisture); // إضافة رطوبة التربة
+                        myChart.data.datasets[0].data.push(data.sensors.dht11_inner_temp); // إضافة الحرارة
+                        myChart.data.datasets[1].data.push(data.sensors.water_sensor_1); // إضافة رطوبة التربة
 
                         // حد أقصى للنقاط المعروضة (مثلاً آخر 7 قراءات) لكي لا يزدحم الرسم البياني
                         if (myChart.data.labels.length > 7) {
@@ -156,7 +156,7 @@
                         myChart.update(); // أمر إجباري للمكتبة لإعادة رسم المخطط بالقيم الجديدة
                     }
                 })
-                .catch(err => console.error('خطأ في جلب البيانات:', err));
+                .catch(err => console.error('خطأ في جلب البيانات للداشبورد:', err));
         }
 
         fetchLatestData();

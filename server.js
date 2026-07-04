@@ -16,7 +16,7 @@ const dbConfig = {
     database: 'greenhouse_db'
 };
 
-// استقبال قراءات الـ ESP32 وإرسال جيسن التحكم العكسي فوراً
+// 1. استقبال قراءات الـ ESP32 وإرسال جيسن التحكم العكسي فوراً
 app.post('/api/greenhouse/data', async (req, res) => {
     try {
         const { analogSensors, digitalSensors, i2cSensors } = req.body;
@@ -29,7 +29,7 @@ app.post('/api/greenhouse/data', async (req, res) => {
         let windowsServo = 0;   
         let roofServo = 0;      
 
-        // 1. اتخاذ القرار برمجياً بناءً على الحساسات
+        // القرار برمجياً بناءً على الحساسات
         if (digitalSensors.dht11Inner.temperature > 30.0) {
             southFan = "ON";  
             northFan = "ON";
@@ -47,7 +47,7 @@ app.post('/api/greenhouse/data', async (req, res) => {
             roofServo = 45; 
         }
 
-        // 2. محاولة التخزين في قاعدة البيانات (مع حمايتها بـ try-catch داخلي لمنع انهيار الرد العكسي)
+        // محاولة التخزين في قاعدة البيانات
         try {
             const connection = await mysql.createConnection(dbConfig);
 
@@ -74,13 +74,12 @@ app.post('/api/greenhouse/data', async (req, res) => {
             await connection.end();
             console.log("📥 [MySQL]: تم حفظ قراءات الحساسات وحالات المشغلات بنجاح!");
         } catch (dbErr) {
-            // في حال عدم وجود قاعدة بيانات حالياً، سنطبع تنبيهاً فقط دون تعطيل الخدمة
-            console.warn("⚠️ [تنبيه قاعدة البيانات]: تعذر التخزين في MySQL (تأكدي من تشغيل السيرفر المحلي لاحقاً). تم تخطي خطوة الحفظ لتسهيل الاختبار الحقيقي للمشغلات.");
+            console.warn("⚠️ [تنبيه قاعدة البيانات]: تعذر التخزين في MySQL. تم تخطي خطوة الحفظ لتسهيل الاختبار.");
         }
 
         console.log("⚙️ [منطق التحكم]: تم تطبيق الشروط الحيوية وحساب مخرجات التحكم العكسي بنجاح.");
 
-        // 3. إرجاع جيسن التحكم العكسي للـ ESP32 فوراً (سيعمل دائماً وأبداً)
+        // إرجاع جيسن التحكم العكسي للـ ESP32
         return res.status(200).json({
             status: "execute",
             relays: {
@@ -100,6 +99,42 @@ app.post('/api/greenhouse/data', async (req, res) => {
     } catch (err) {
         console.error('❌ خطأ فادح في معالجة طلب الدفيئة:', err.message);
         res.status(500).json({ error: 'فشل السيرفر بالكامل في معالجة الحزمة المرسلة' });
+    }
+});
+
+// 2. الرابط المخصص للداشبورد (GET) لجلب أحدث سجل مخزن في الجداول
+app.get('/api/greenhouse/latest', async (req, res) => {
+    let connection;
+    try {
+        connection = await mysql.createConnection(dbConfig);
+
+        // جلب آخر قراءة من جدول الحساسات
+        const [sensorRows] = await connection.execute(
+            'SELECT * FROM greenhouse_sensors ORDER BY id DESC LIMIT 1'
+        );
+
+        // جلب آخر حالة من جدول المشغلات
+        const [actuatorRows] = await connection.execute(
+            'SELECT * FROM greenhouse_actuators ORDER BY id DESC LIMIT 1'
+        );
+
+        await connection.end();
+
+        // في حال كانت الجداول فارغة تماماً
+        if (sensorRows.length === 0 || actuatorRows.length === 0) {
+            return res.status(404).json({ message: 'لا توجد بيانات مخزنة في قاعدة البيانات بعد' });
+        }
+
+        // إرسال البيانات المدمجة للداشبورد
+        return res.status(200).json({
+            sensors: sensorRows[0],
+            actuators: actuatorRows[0]
+        });
+
+    } catch (err) {
+        if (connection) await connection.end();
+        console.error('❌ خطأ في جلب البيانات للداشبورد:', err.message);
+        return res.status(500).json({ error: 'فشل في الاتصال بقاعدة البيانات وجلب التحديثات' });
     }
 });
 
