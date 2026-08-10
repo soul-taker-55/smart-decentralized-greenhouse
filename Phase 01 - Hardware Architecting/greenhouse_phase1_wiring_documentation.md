@@ -2,13 +2,13 @@
 
 **Phase 1 — Wiring and Hardware Bring-up**
 **Controller:** ESP32-WROOM-32E
-**Document scope:** Complete electrical specification from the 220–230 V mains source through every ESP32 pin. Control logic, MQTT, and server layers are out of scope for this document.
+**Document scope:** Complete electrical specification from the 220–230 V mains source through every ESP32 pin, for Phase 1 only. The system also includes the ESP32-CAM as a separate, independently-powered node; it is not wired to the main controller in this phase and appears here at inventory level only.
 
 | Field | Value |
 |---|---|
-| Document version | 1.0 |
+| Document version | 1.4 |
 | Date | 19 June 2026 |
-| Phase | 1 of 9 (hardware bring-up) |
+| Phase | 1 (hardware bring-up) |
 | Status | Wiring locked — ready to build |
 
 ---
@@ -27,9 +27,9 @@
    - 8.2 Digital Sensors
    - 8.3 I2C Bus
    - 8.4 Actuators & Outputs (Relay)
-   - 8.5 Servo Motors (not used)
+   - 8.5 Servo Motor (MG996R)
    - 8.6 Human Interface (Rotary Encoder & LCD)
-   - 8.7 Reserved & Spare Pins
+   - 8.7 Reserved Pins
 9. [Boot Safety & Critical Design Notes](#9-boot-safety--critical-design-notes)
 10. [Bring-up & Verification Procedure](#10-bring-up--verification-procedure)
 11. [Appendix A — Master Pin Reference](#appendix-a--master-pin-reference)
@@ -39,24 +39,24 @@
 
 ## 1. Introduction
 
-This document is the electrical reference for the **Smart Decentralized Greenhouse**, an academic proof-of-concept intended for eventual production deployment. The system is a single enclosure (3D-printed frame, plexiglass) growing lettuce and chicory, with an ESP32-class edge controller responsible for environmental sensing and binary actuation.
+This document presents the complete hardware wiring and electrical architecture of the Smart Decentralized Greenhouse, an academic proof-of-concept prototype intended for eventual production deployment. The system is built around an ESP32 microcontroller, powered by a regulated 5 V DC power supply, and integrates multiple analog and digital sensors, actuators, and control interfaces. All subsystems have been designed to ensure stable operation, electrical safety, and logical pin allocation for efficient firmware development.
 
-The build is organised as nine dependency-ordered phases. **Phase 1** — the subject of this document — wires every sensor and actuator to the controller and verifies that each one reads or switches correctly, with **no control logic present**. Establishing a clean, verified hardware baseline here removes electrical faults as a variable for every later phase (threshold control, fuzzy arbitration, RBAC, vision, ledger).
+The build is organized as nine dependency-ordered phases. Phase 1 — the subject of this document — wires every sensor and actuator to the controller and verifies that each one reads or switches correctly, with no control logic present. Establishing a clean, verified hardware baseline here removes electrical faults as a variable for every later phase (threshold control, fuzzy arbitration, RBAC, vision, ledger).
 
 The controlling design constraints, all reflected in the pin assignments that follow, are:
 
-- **ADC2 is unusable while WiFi is active**, so every analog sensor is placed on an **ADC1** channel (GPIO 32–39).
-- **Strapping pins** (GPIO 0, 2, 5, 12, 15) are avoided for driven loads, with one deliberate, justified exception (GPIO 5 — see §9).
+- **ADC2 is unusable while Wi-Fi is active**, so every analog sensor is placed on an ADC1 channel (GPIO 32–39).
+- **Strapping pins** (GPIO 0, 2, 5, 12, 15) are avoided for driven loads, with one deliberate, justified exception (GPIO 5).
 - **Input-only pins** (GPIO 34, 35, 36, 39) carry only analog inputs, never outputs.
-- All actuators are **binary (on/off)**, switched through an **active-LOW** relay module, with the 220 V grow-light circuit requiring guaranteed-off behaviour through boot.
+- **All actuators are binary (on/off)**, switched through an active-LOW relay module, with the 220 V grow-light circuit requiring guaranteed-off behaviour through boot. The sole exception is the MG996R servo, a PWM-driven positional actuator.
 
 ---
 
 ## 2. System Overview
 
-The full system splits at MQTT into an **edge tier** (this controller, must run standalone) and a **server tier** (Dokploy-hosted vision, data, RBAC, ledger, dashboard). Phase 1 concerns only the edge hardware.
+Phase 1 wires the ESP32 controller to every sensor, the local interface, and every actuator, and verifies each one individually. No control logic, networking, or server software is part of this phase.
 
-**Edge signal/power flow at a glance:**
+Edge power and signal flow:
 
 ```
 220–230 V AC mains
@@ -66,12 +66,13 @@ The full system splits at MQTT into an **edge tier** (this controller, must run 
    │                     ├─ ESP32 (5V pin)              ├─ BMP280 ×2, DHT11 ×2
    │                     ├─ Relay coils (JD-VCC)        ├─ LDR ×2, soil, water
    │                     ├─ LCD, MQ135 heater           ├─ encoder, relay logic
-   │                     └─ DC loads via relay contacts └─ level-converter LV
+   │                     ├─ MG996R servo (V+)           └─ level-converter LV
+   │                     └─ DC loads via relay contacts
    │
    └──► Grow light (220 V), switched by relay CH7 contacts (mains-isolated)
 ```
 
-A second microcontroller, the **ESP32-CAM**, exists in the system as an **independent WiFi node** for computer vision (Phase 6). It has its own power and network path and is **not wired to the main ESP32-WROOM-32E**; it is therefore outside the scope of this wiring document.
+The system also includes the **ESP32-CAM**, a separate camera node that operates as an independent WiFi device with its own power and network path. It is **not wired to the ESP32-WROOM-32E** and is outside the scope of this phase's wiring; it is documented here at inventory level only and will be detailed separately.
 
 ---
 
@@ -82,10 +83,10 @@ A second microcontroller, the **ESP32-CAM**, exists in the system as an **indepe
 | No | Component | Qty | Power rail | Signal type | Function | Key notes |
 |----|-----------|-----|-----------|-------------|----------|-----------|
 | 1 | ESP32-WROOM-32E | 1 | 5 V → onboard 3.3 V reg | — (host) | Main edge controller | WiFi/BT; ADC2 unusable with WiFi |
-| 2 | ESP32-CAM | 1 | independent | — | Vision node (Phase 6) | Separate WiFi node; **not wired here** |
+| 2 | ESP32-CAM | 1 | independent | — | Camera node (separate) | Not wired in this phase — to be detailed later |
 | 3 | BMP280 (RobotDyn 7-pin) | 2 | 3.3 V | I2C | Inner/outer temperature + pressure | Addr 0x76 / 0x77; **no humidity** |
 | 4 | DHT11 (3-pin module) | 2 | 3.3 V | Digital 1-wire | Inner/outer relative humidity | ±5 % RH, integer output (known weak) |
-| 5 | MQ135 gas sensor | 1 | **5 V** | Analog (5 V) | Air-quality / gas trend | Heater needs 5 V; **divider required**; 24–48 h burn-in |
+| 5 | MQ135 gas sensor | 1 | **5 V** | Analog (5 V) | Air-quality / gas | Heater needs 5 V; **divider required**; 24–48 h burn-in |
 | 6 | LDR module (KY-018) | 2 | 3.3 V | Analog | Inner/outer light level | Onboard divider resistor |
 | 7 | Soil moisture (FC-28 + LM393) | 1 | 3.3 V | Analog (AO) | Substrate moisture | Resistive probe — corrodes under constant bias |
 | 8 | Water-level sensor | 1 | 3.3 V | Analog | Reservoir level | Resistive trace; corrodes |
@@ -93,62 +94,62 @@ A second microcontroller, the **ESP32-CAM**, exists in the system as an **indepe
 | 10 | Bidirectional logic level converter | 1 | 3.3 V + 5 V | — | I2C voltage bridge for LCD | MOSFET (BSS138) type |
 | 11 | Rotary encoder (EC11/KY-040) | 1 | 3.3 V | Digital | Local UI input | Needs pull-ups (internal used) |
 | 12 | 8-channel relay module | 1 | 5 V coils / 3.3 V logic | Digital (active-LOW) | Actuator switching | SONGLE SRD-05VDC; JD-VCC jumper |
-| 13 | DC fans (5 V) | 3 | 5 V (switched) | — (load) | Cooling + humidity exhaust | Staged ventilation (0–3 fans) |
-| 14 | DC pump | 1 | 5 V (switched) | — (load) | Irrigation | |
-| 15 | Ultrasonic humidifier | 1 | 5 V (switched) | — (load) | Humidity addition | Driver inrush — measure draw |
-| 16 | LED string ("Normal Lights") | 1 | 5 V (switched) | — (load) | Inner lighting | |
-| 17 | LED grow light | 1 | **220 V** (switched) | — (load) | Photoperiod lighting | Non-dimmable; schedule-driven; mains-isolated |
-| 18 | S-25-5 PSU | 1 | 220 V in / 5 V out | — | Primary 5 V supply | 25 W, 5 A |
-| 19 | LM2596 / HW-411 buck | 1 | 5 V in / 3.3 V out | — | 3.3 V rail generator | Adjustable; set to 3.30 V |
-| 20 | Resistor 2.2 kΩ | 1 | — | — | MQ135 divider (R1) | |
-| 21 | Resistor 3.3 kΩ | 1 | — | — | MQ135 divider (R2) | |
-| 22 | Resistor 10 kΩ | 7 | — | — | Relay IN pull-ups | Boot safety |
+| 13 | MG996R servo | 1 | **5 V** | PWM (50 Hz) | Positional actuator | High-torque; stall ~2.5 A; only PWM load |
+| 14 | DC fans (5 V) | 3 | 5 V (switched) | — (load) | Cooling + humidity exhaust | Staged ventilation (0–3 fans) |
+| 15 | DC pump | 1 | 5 V (switched) | — (load) | Irrigation | |
+| 16 | Ultrasonic humidifier | 1 | 5 V (switched) | — (load) | Humidity addition | Driver inrush — measure draw |
+| 17 | LED string ("Normal Lights") | 1 | 5 V (switched) | — (load) | Inner lighting | |
+| 18 | LED grow light | 1 | **220 V** (switched) | — (load) | Photoperiod lighting | Non-dimmable; mains-isolated |
+| 19 | S-25-5 PSU | 1 | 220 V in / 5 V out | — | Primary 5 V supply | 25 W, 5 A |
+| 20 | LM2596 / HW-411 buck | 1 | 5 V in / 3.3 V out | — | 3.3 V rail generator | Adjustable; set to 3.30 V |
+| 21 | Resistors (2.2 kΩ, 3.3 kΩ, 10 kΩ ×7) | 9 | — | — | Passives | To be detailed later (see §8) |
+| 22 | Electrolytic cap 470–1000 µF | 1 | — | — | Servo bulk decoupling | Across servo V+/GND |
 
 ### 3.2 Extended component notes
 
-**ESP32-WROOM-32E.** Dual-core Xtensa LX6 @ 240 MHz, 2.4 GHz WiFi + BT, 3.3 V logic. Powered on the bench via USB (5 V → onboard AMS1117 → 3.3 V). For standalone operation the 5 V rail feeds the board's 5 V pin. Two ADC blocks exist, but **ADC2 shares hardware with the WiFi radio** and returns garbage once WiFi is up — hence the ADC1-only rule for all analog sensors.
+**ESP32-WROOM-32E.** Dual-core Xtensa LX6 @ 240 MHz, 2.4 GHz WiFi + BT, 3.3 V logic. Powered on the bench via USB (5 V → onboard AMS1117 → 3.3 V); for standalone operation the 5 V rail feeds the 5 V pin. Two ADC blocks exist, but **ADC2 shares hardware with the WiFi radio** and returns garbage once WiFi is up — hence the ADC1-only rule for all analog sensors.
 
-**BMP280 (7-pin RobotDyn variant).** This board exposes `5V · 3V3 · GND · SCK · SDO · SDI · CS` and supports both I2C and SPI. For I2C it requires two deliberate pin states: **CS tied HIGH** selects I2C mode, and **SDO selects the address** (GND → 0x76, 3.3 V → 0x77). This is exactly how the two sensors are differentiated on a shared bus. Measures pressure 300–1100 hPa and temperature −40 to +85 °C; it deliberately provides **no humidity** (that comes from the DHT11s).
+**ESP32-CAM.** A separate camera-equipped microcontroller operating as an independent WiFi node, with its own power supply and network path. It is **not electrically connected** to the ESP32-WROOM-32E. It is listed for inventory completeness; its wiring and function are out of scope for this phase and will be detailed separately.
 
-**DHT11.** Humidity 20–90 % RH at ±5 %, integer resolution, ≥1 s between reads. The 3-pin module carries an onboard pull-up, so no external resistor is needed. Powered at 3.3 V so its open-drain data line idles at an ESP32-safe level. A documented accuracy limitation of the project — acceptable because humidity here is used for threshold control, not metrology.
+**BMP280 (7-pin RobotDyn variant).** Exposes `5V · 3V3 · GND · SCK · SDO · SDI · CS` and supports both I2C and SPI. For I2C it requires two deliberate pin states: **CS tied HIGH** selects I2C mode, and **SDO selects the address** (GND → 0x76, 3.3 V → 0x77) — exactly how the two sensors are differentiated on a shared bus. Measures pressure 300–1100 hPa and temperature −40 to +85 °C; deliberately provides **no humidity**.
 
-**MQ135.** Tin-dioxide gas sensor; its internal **heater requires 5 V** to reach the correct operating temperature, so it cannot run at 3.3 V. The analog output (AO) can swing to nearly the 5 V rail, so it passes through a divider before reaching the ADC (see §8.1). Requires **24–48 h burn-in** for stable readings and resists absolute calibration — treat it as a relative trend signal. The board's digital output (DO) is a 5 V comparator output and is **left unconnected**.
+**DHT11.** Humidity 20–90 % RH at ±5 %, integer resolution, ≥1 s between reads. The 3-pin module carries an onboard pull-up, so no external resistor is needed. Powered at 3.3 V so its open-drain data line idles at an ESP32-safe level.
 
-**LDR / soil / water modules.** All three are breakout modules with onboard signal conditioning that output a 0-to-VCC analog voltage. Powered at **3.3 V**, their outputs already land within the ADC range, so **none of them needs an external divider** — the MQ135 is the only analog part that does. The soil (resistive FC-28) and water-level (resistive trace) sensors corrode under continuous DC bias; in later phases, power their VCC from a spare GPIO and energise only during a reading.
+**MQ135.** Tin-dioxide gas sensor; its internal **heater requires 5 V**, so it cannot run at 3.3 V. The analog output (AO) can swing to nearly the 5 V rail, so it passes through a divider before reaching the ADC (§8.1). Requires **24–48 h burn-in** for stable readings. The 5 V digital output (DO) is **left unconnected**.
+
+**LDR / soil / water modules.** All three are breakout modules with onboard signal conditioning that output a 0-to-VCC analog voltage. Powered at **3.3 V**, their outputs already land within the ADC range, so **none of them needs an external divider** — the MQ135 is the only analog part that does. The soil (resistive FC-28) and water-level (resistive trace) probes corrode under continuous DC bias and should not be left energised for long periods.
 
 **16×2 LCD + level converter.** The HD44780 + PCF8574 backpack wants **5 V** for readable contrast; at 5 V its onboard pull-ups drive SDA/SCL to 5 V, which the ESP32 is **not** 5 V-tolerant for. The bidirectional level converter bridges only the LCD's two I2C lines between the 3.3 V and 5 V domains. The BMP280s are native 3.3 V and connect directly to the bus — they do **not** pass through the converter.
 
 **8-channel relay module.** Opto-isolated, **active-LOW** (GPIO LOW = relay ON). SONGLE SRD-05VDC-SL-C relays, contacts rated ~10 A @ 250 VAC / 30 VDC. The board carries a removable **VCC ↔ JD-VCC jumper**: removing it lets the coils run from 5 V (JD-VCC) while the opto-input logic side runs from 3.3 V (VCC), so a 3.3 V GPIO HIGH fully releases the relay.
 
-**Power supplies.** The **S-25-5** converts mains to 5 V at up to 5 A. The **LM2596** buck steps 5 V down to a regulated **3.30 V**; the 5 V → 3.3 V step provides ~1.7 V of headroom, adequate for this regulator. Set and verify the LM2596 output with a multimeter **before** connecting any 3.3 V device.
+**MG996R servo.** High-torque metal-gear positional servo, 4.8–7.2 V, controlled by a 50 Hz PWM signal (≈ 500–2500 µs pulse → 0–180°). Idle draw is small, but **stall current can reach ~2.5 A**, so it is treated as a transient high-current load on the 5 V rail and given a bulk capacitor (§8.5). The 3.3 V PWM signal from the ESP32 is normally sufficient (logic threshold ~2.5 V). It is the **only** PWM-driven actuator; all others are binary relay loads.
+
+**Power supplies.** The **S-25-5** converts mains to 5 V at up to 5 A. The **LM2596** buck steps 5 V down to a regulated **3.30 V** (~1.7 V headroom, adequate). Set and verify the LM2596 output with a multimeter **before** connecting any 3.3 V device.
 
 ---
 
 ## 4. Electrical Wiring Color Convention
 
-A consistent color code makes the harness self-documenting and reduces miswiring. The following convention is used throughout this document and should be followed on the physical build.
+A consistent color code makes the harness self-documenting and reduces miswiring. This convention covers the DC / logic side; AC mains conductors are excluded by design (see notes).
 
-### 4.1 DC / logic wiring
-
-| Color | Net | Notes |
+| Color | Net | Voltage level |
 |---|---|---|
-| 🔴 Red | +5 V | From S-25-5 / 5 V rail |
-| 🟠 Orange | +3.3 V | From LM2596 / 3.3 V rail |
-| ⚫ Black | GND | Common ground (all domains) |
-| 🟡 Yellow | I2C (SDA / SCL) | Shared bus lines |
-| 🟢 Green | Analog signal | LDR, soil, water, MQ135 AO |
-| 🔵 Blue | Digital sensor signal | DHT11 data, encoder CLK/DT/SW |
-| 🟣 Purple | Relay control (IN lines) | ESP32 → relay opto inputs |
+| 🔴 Red | +5 V | 5 V DC |
+| 🟠 Orange | +3.3 V | 3.3 V DC |
+| ⚫ Black | GND | — |
+| 🟡 Yellow | SDA | 3.3 V logic |
+| 🔵 Blue | SCL | 3.3 V logic |
+| 🟢 Green | Analog signal | 0–3.3 V |
+| ⚪ White | Digital signal | 3.3 V logic |
+| 🟣 Purple | PWM / control output | 3.3 V logic |
+| 🟤 Brown | Configuration | — |
 
-### 4.2 AC mains wiring (IEC / EU — Netherlands)
+**Notes**
 
-| Color | Conductor | Notes |
-|---|---|---|
-| 🟤 Brown | Line (Live, L) | 220–230 V AC, 50 Hz |
-| 🔵 Blue | Neutral (N) | |
-| 🟢🟡 Green/Yellow | Protective Earth (PE) | Bond the PSU chassis/enclosure metal |
-
-> **Safety:** Mains wiring (S-25-5 input and the grow-light circuit) must be insulated, strain-relieved, and kept physically separated from all low-voltage wiring. The grow-light relay contacts are the **only** point where mains touches the board, and that side is galvanically isolated from logic ground.
+- **AC mains wiring is intentionally excluded from this color convention.** The Live / Neutral / Earth conductors are distinguished by their heavier cable gauge and physical separation, not by color, so no DC/mains color collision applies. (Mains isolation requirements are covered in §9.)
+- **Green has one exception:** the MQ135 signal upstream of its divider carries up to 5 V; it only becomes 0–3 V after the 2.2 kΩ/3.3 kΩ divider (§8.1). The 0–3.3 V label describes the wire at the ESP32 pin, not at the sensor.
+- **Purple is the control pulse only:** the MG996R servo's power is a separate red 5 V wire; the purple wire carries just the 3.3 V PWM signal.
 
 ---
 
@@ -169,11 +170,13 @@ A consistent color code makes the harness self-documenting and reduces miswiring
 
 ### 5.2 Rail allocation
 
-**5 V rail** powers: ESP32 5 V pin (standalone only) · relay **JD-VCC** (coils) · LCD VCC · MQ135 VCC · all switched DC loads (3 fans, pump, humidifier, LED string) through the relay **contacts**.
+**5 V rail** powers: ESP32 5 V pin (standalone only) · relay **JD-VCC** (coils) · LCD VCC · MQ135 VCC · **MG996R servo (V+)** · all switched DC loads (3 fans, pump, humidifier, LED string) through the relay **contacts**.
 
 **3.3 V rail** powers: both BMP280 · both DHT11 · both LDR · soil module · water sensor · rotary encoder · relay **logic VCC** (opto-input side) · level-converter **LV** side.
 
 **220 V mains** feeds: the S-25-5 input · the grow light (through CH7 relay contacts, isolated).
+
+**ESP32-CAM** is powered independently of these rails and is excluded from the current budget below.
 
 ### 5.3 Current budget (estimates — verify by measurement)
 
@@ -184,16 +187,17 @@ A consistent color code makes the harness self-documenting and reduces miswiring
 | 5 V | MQ135 heater | ~150 mA |
 | 5 V | LCD (+ backlight) | ~25 mA |
 | 5 V | LM2596 input (to supply 3.3 V rail) | ~200 mA |
+| 5 V | **MG996R servo (moving / stall)** | **~0.7 A / up to 2.5 A** |
 | 5 V | 3 DC fans | ~450 mA |
 | 5 V | DC pump | ~300–500 mA |
 | 5 V | Ultrasonic humidifier | ~300 mA – 1 A |
 | 5 V | LED string | ~200–500 mA |
-| **5 V** | **Worst-case total (everything on)** | **~2.5–3.5 A** |
+| **5 V** | **Worst-case total** | **approaches / can exceed 5 A on servo stall** |
 | 3.3 V | All sensors + encoder | ~50 mA |
 | 3.3 V | Relay opto inputs (7 × ~5 mA) | ~35 mA |
 | **3.3 V** | **Total** | **~85–100 mA** |
 
-The 5 A supply has margin, but the simultaneous **pump + humidifier + all fans** case is the stress point. Measure it. The fan-vs-humidifier conflict arbiter (Phase 4) reduces this peak by design, since it prevents both running at full demand at once.
+The simultaneous high-current case — servo motion plus pump, humidifier, and fans — is the stress point. Measure it, fit the bulk capacitor at the servo (§8.5), and avoid commanding all high-current loads at the same instant. The MG996R's stall current alone can momentarily approach half the supply's rating.
 
 > The "0.08 mA" fan figure on the relay-board sketch is a typo — real 5 V fans draw ~80–200 mA.
 
@@ -207,7 +211,7 @@ The 5 A supply has margin, but the simultaneous **pump + humidifier + all fans**
 
 ## 6. Grounding Topology
 
-A single **common ground** ties together: S-25-5 GND, LM2596 input/output GND, ESP32 GND, relay logic GND, the level-converter GND (both sides), and every module GND. Route grounds back toward a single node (star topology) rather than daisy-chaining through high-current paths, so actuator switching currents do not corrupt sensor reference voltages.
+A single **common ground** ties together: S-25-5 GND, LM2596 input/output GND, ESP32 GND, relay logic GND, the level-converter GND (both sides), the servo GND, and every module GND. Route grounds back toward a single node (star topology) rather than daisy-chaining through high-current paths, so actuator and servo switching currents do not corrupt sensor reference voltages.
 
 **The one exception:** the relay's **output contacts** for the grow light carry 220 V and are galvanically separate dry contacts. That mains side never connects to logic ground.
 
@@ -227,14 +231,16 @@ A single **common ground** ties together: S-25-5 GND, LM2596 input/output GND, E
 
 ### 7.2 Functional pin groups
 
-**Analog inputs (ADC1):** GPIO 36, 39, 34, 35, 32
-**I2C bus:** GPIO 21 (SDA), 22 (SCL)
-**Digital sensor inputs:** GPIO 26, 27 (DHT11), and GPIO 13, 14, 33 (encoder)
-**Relay control outputs:** GPIO 19, 18, 5, 17, 16, 4, 23
-**Power:** 5 V pin, 3V3 pin (unused as input), GND
-**Spare:** GPIO 25
+- **Analog inputs (ADC1):** GPIO 36, 39, 34, 35, 32
+- **I2C bus:** GPIO 21 (SDA), 22 (SCL)
+- **Digital sensor inputs:** GPIO 26, 27 (DHT11); 13, 14, 33 (encoder)
+- **Relay control outputs:** GPIO 19, 18, 5, 17, 16, 4, 23
+- **PWM output:** GPIO 25 (MG996R servo)
+- **Power:** 5 V pin, 3V3 pin (unused as input), GND
 
 The complete pin-by-pin table is in [Appendix A](#appendix-a--master-pin-reference).
+
+> These assignments belong to the main ESP32-WROOM-32E. The ESP32-CAM is a separate node with its own pins and is not part of this pin map.
 
 ---
 
@@ -254,7 +260,7 @@ All analog sensors sit on **ADC1**. The four input-only pins (34/35/36/39) carry
 | Water level | 3.3 V | GND | S → **GPIO 35** | — |
 | MQ135 | **5 V** | GND | AO → divider → **GPIO 32** | DO unconnected |
 
-**MQ135 voltage divider.** The 5 V AO must be brought below the ADC's nonlinear ceiling (~3.1 V):
+**MQ135 voltage divider:**
 
 ```
 MQ135 AO ──[ R1 = 2.2 kΩ ]──┬── GPIO 32
@@ -266,13 +272,11 @@ MQ135 AO ──[ R1 = 2.2 kΩ ]──┬── GPIO 32
 
 `V_adc = V_ao × R2 / (R1 + R2) = V_ao × 3.3 / 5.5 = V_ao × 0.60`
 
-At a worst-case 5.0 V AO this yields **3.0 V** at the pin — safely under the ceiling — with a source impedance of `R1 ∥ R2 ≈ 1.32 kΩ`, low enough for clean ADC sampling. The firmware reconstructs AO by multiplying the measured pin voltage by 5.5 / 3.3.
+At a worst-case 5.0 V AO this yields **3.0 V** at the pin — safely under the ADC's nonlinear ceiling — with a source impedance of `R1 ∥ R2 ≈ 1.32 kΩ`. Firmware reconstructs AO by multiplying the measured pin voltage by 5.5 / 3.3.
 
-**ADC configuration:** `analogReadResolution(12)` (0–4095) and `ADC_11db` attenuation (~0–3.1 V usable).
+**ADC configuration:** `analogReadResolution(12)` (0–4095), `ADC_11db` attenuation (~0–3.1 V usable).
 
 ### 8.2 Digital Sensors
-
-DHT11 modules are single-wire with an onboard pull-up; powered at 3.3 V their data line is ESP32-safe.
 
 | Sensor | Power | GND | Data → ESP32 |
 |---|---|---|---|
@@ -284,8 +288,6 @@ DHT11 modules are single-wire with an onboard pull-up; powered at 3.3 V their da
 ### 8.3 I2C Bus
 
 One bus (`GPIO 21 = SDA`, `GPIO 22 = SCL`) carries **both BMP280s and the LCD**, split into two voltage domains by the level converter.
-
-**Domain layout**
 
 | Domain | Devices | Connection |
 |---|---|---|
@@ -315,13 +317,13 @@ One bus (`GPIO 21 = SDA`, `GPIO 22 = SCL`) carries **both BMP280s and the LCD**,
 | LV2 ↔ HV2 | LV2 → GPIO 22 (with BMP280s) · HV2 → LCD SCL |
 | (LCD) VCC / GND | 5 V / GND |
 
-**Pull-ups:** the BMP280 boards carry onboard I2C pull-ups (the `103` = 10 kΩ resistors); two in parallel is fine. No external pull-ups required. If the startup I2C scan shows nothing, suspect SDA/SCL swap or a missing CS-high.
+**Pull-ups:** the BMP280 boards carry onboard I2C pull-ups (the `103` = 10 kΩ resistors); two in parallel is fine. No external pull-ups required.
 
 **Expected addresses on the bus:** `0x76`, `0x77`, and the LCD at `0x27` (or `0x3F`).
 
 ### 8.4 Actuators & Outputs (Relay)
 
-The 8-channel **active-LOW** relay module is the single point of actuation. Seven channels are used; IN8 is free.
+The 8-channel **active-LOW** relay module switches the binary loads. Seven channels are used; IN8 is free.
 
 **Logic / coil side**
 
@@ -333,7 +335,7 @@ The 8-channel **active-LOW** relay module is the single point of actuation. Seve
 | VCC ↔ JD-VCC jumper | **REMOVED** |
 | each IN line | + a **10 kΩ pull-up to 3.3 V** (boot safety) |
 
-**Control mapping** (pin order matches your relay-board diagram; physical top-to-bottom on the ESP32 right header for a clean ribbon):
+**Control mapping** (pin order matches the relay-board diagram; physical top-to-bottom on the ESP32 right header for a clean ribbon):
 
 | IN | ESP32 | Load | Contact wiring (COM / NO) |
 |---|---|---|---|
@@ -345,17 +347,29 @@ The 8-channel **active-LOW** relay module is the single point of actuation. Seve
 | IN6 | GPIO 4 | Normal Lights (LED string) | COM ← 5 V · NO → LED(+) · (−) → GND |
 | IN7 | GPIO 23 | **Grow light (220 V)** | COM ← **mains L** · NO → light L · light N → **mains N** |
 
-> **GPIO 5** is a strapping pin used deliberately for the Internal Fan — see §9 for the full justification. It is never used for the grow light.
+> **GPIO 5** is a strapping pin used deliberately for the Internal Fan — see §9 for the justification. It is never used for the grow light.
 
-### 8.5 Servo Motors
+### 8.5 Servo Motor (MG996R)
 
-**Not used in this build.** Every actuator in the locked hardware set is binary and relay-switched; there are no servos, ESCs, or PWM-driven motors. This section is retained for completeness and future expansion.
+The MG996R is the only PWM-controlled actuator in the build. It is driven by a 50 Hz signal on a single pin; power and ground come from the 5 V rail and common ground.
 
-**If a servo is added later:** drive it from the spare **GPIO 25** (full GPIO, LEDC-PWM capable), power its supply rail from 5 V (never from the ESP32 3V3 pin — servo stall current will brown out the logic), and tie its ground to common GND. A 50 Hz LEDC channel on GPIO 25 would control it without disturbing any existing assignment.
+| Servo wire | Connects to | Note |
+|---|---|---|
+| Brown (GND) | common GND | |
+| Red (V+) | 5 V rail | 4.8–7.2 V; high transient/stall current |
+| Orange (signal) | **GPIO 25** | 50 Hz PWM (LEDC / ESP32Servo) |
+
+Configuration notes:
+
+- Place a **bulk capacitor (470–1000 µF)** across the servo V+/GND, physically close to the servo, to absorb inrush and protect the shared 5 V rail.
+- **Never** power the servo from the ESP32 3V3 pin.
+- The 3.3 V PWM signal from GPIO 25 is normally sufficient (servo logic threshold ~2.5 V); if positioning is jittery, insert a 3.3 → 5 V level shift on the signal line.
+- GPIO 25 is full-GPIO and LEDC-PWM capable; it is the only output pin used for PWM.
+- On boot the firmware drives the servo to a known neutral angle (90°). Set this to your mechanism's safe rest position.
 
 ### 8.6 Human Interface (Rotary Encoder & LCD)
 
-**Rotary encoder** (incremental, with push-switch). Uses the ESP32 internal pull-ups, so no external resistors are needed. Must be on full-GPIO pins (not the input-only 34/35/36/39).
+**Rotary encoder** — uses the ESP32 internal pull-ups (no external resistors). Must be on full-GPIO pins (not the input-only 34/35/36/39).
 
 | Encoder pin | Power/GND | → ESP32 |
 |---|---|---|
@@ -365,9 +379,9 @@ The 8-channel **active-LOW** relay module is the single point of actuation. Seve
 | DT | — | **GPIO 14** (INPUT_PULLUP) |
 | SW | — | **GPIO 33** (INPUT_PULLUP) |
 
-**LCD** — see §8.3 (it is an I2C device on the 5 V side of the level converter).
+**LCD** — see §8.3 (an I2C device on the 5 V side of the level converter).
 
-### 8.7 Reserved & Spare Pins
+### 8.7 Reserved Pins
 
 | Pin(s) | Status | Reason |
 |---|---|---|
@@ -375,41 +389,45 @@ The 8-channel **active-LOW** relay module is the single point of actuation. Seve
 | GPIO 1, 3 | **Reserved** | UART0 — USB serial / programming |
 | GPIO 0, 2, 12, 15 | **Avoided** | Strapping pins (boot interference) |
 | GPIO 5 | **Used (justified)** | Strapping pin; safe for a fan load (§9) |
-| GPIO 25 | **Spare** | Free full GPIO — servo / future use |
 | 3V3 pin | **Do not drive** | Onboard-regulator output |
+
+All other usable GPIOs are assigned; no free full-GPIO pins remain after the servo on GPIO 25.
 
 ---
 
 ## 9. Boot Safety & Critical Design Notes
 
-**Relay boot safety.** Every ESP32 GPIO is high-impedance from reset until firmware runs. On an active-LOW board a floating input can drift LOW = relay ON. Three layers prevent this, and all three matter most for the 220 V grow light:
+**Relay boot safety.** Every ESP32 GPIO is high-impedance from reset until firmware runs. On an active-LOW board a floating input can drift LOW = relay ON. Three layers prevent this, mattering most for the 220 V grow light:
 
 1. **10 kΩ pull-up** from each IN line to the 3.3 V logic VCC — holds IN HIGH (OFF) during the float window.
 2. **Firmware drives every relay pin OUTPUT + HIGH as the first action in `setup()`**, before Serial, I2C, or WiFi.
 3. Relays are kept off strapping pins (except GPIO 5, justified below).
 
-**GPIO 5 justification.** GPIO 5 is a strapping pin (SDIO slave timing), but that strap is irrelevant when booting from SPI flash, and it has an internal pull-up so it idles HIGH = relay OFF. Its only quirk is a possible brief output blip from the ROM bootloader in the ~100 ms before `setup()` runs. On the **Internal Fan**, a sub-second twitch at power-on is harmless — which is precisely why a fan, not the grow light, is assigned here. (Zero-strapping-pin alternative: move the Internal Fan to the spare GPIO 25, accepting a less tidy harness — one flyer wire instead of a 6-wide ribbon.)
+**GPIO 5 justification.** GPIO 5 is a strapping pin (SDIO slave timing), but that strap is irrelevant when booting from SPI flash, and it has an internal pull-up so it idles HIGH = relay OFF. Its only quirk is a possible brief output blip from the ROM bootloader before `setup()` runs. On the **Internal Fan**, a sub-second twitch at power-on is harmless — which is precisely why a fan, not the grow light, is assigned here.
+
+**Servo at boot.** The firmware sets the MG996R to a known neutral angle (90°) at startup. The 5 V rail must tolerate the servo's transient current — the bulk capacitor at the servo (§8.5) is mandatory, not optional.
 
 **Mains isolation.** The grow-light relay's COM/NO contacts carry 220 V and are isolated dry contacts. That side never touches logic ground; keep its wiring physically separated and strain-relieved.
 
-**5 V budget.** Verify worst-case 5 V current (§5.3) stays comfortably under 5 A before running all actuators together.
+**5 V budget.** Verify worst-case 5 V current (§5.3) before running all actuators together; servo stall is the dominant transient.
 
-**Sensor corrosion.** The FC-28 and water-level probes corrode under continuous DC. Acceptable for Phase 1; in Phase 2, power their VCC from a GPIO and energise only during reads.
+**Sensor corrosion.** The FC-28 and water-level probes corrode under continuous DC and should not be left energised for long periods.
 
 ---
 
 ## 10. Bring-up & Verification Procedure
 
-A test sketch (`greenhouse_phase1_bringup.ino`) reads every sensor and lets each relay be toggled over Serial, with no control logic. Recommended order — each step isolates a class of fault before the next is added:
+The test sketch (`greenhouse_phase1_bringup.ino`) reads every sensor, sweeps the servo, and toggles each relay over Serial, with no control logic. Recommended order — each step isolates a class of fault before the next:
 
 1. **Power rails first.** Set the LM2596 to 3.30 V (multimeter, no devices attached). Confirm 5 V and 3.3 V rails and common ground.
 2. **I2C subsystem.** Wire the two BMP280s and the LCD (via level converter). Flash the sketch; the startup **I2C scan** must report `0x76`, `0x77`, and the LCD address. A missing BMP280 points directly at its SDO/CS wiring.
-3. **Analog modules.** Add the LDRs, soil, water, and MQ135 (with divider). Confirm raw values respond — shade an LDR, touch the soil probe, etc. The MQ135 needs burn-in before its reading settles.
+3. **Analog modules.** Add the LDRs, soil, water, and MQ135 (with divider). Confirm raw values respond. The MQ135 needs burn-in before its reading settles.
 4. **Digital inputs.** Add the DHT11s and the encoder; confirm humidity reads and the encoder position/button track.
 5. **Relays — logic only.** Wire the IN ribbon and coil/logic power (jumper removed). Toggle channels `1`–`7` over Serial and confirm each click. **Keep the grow-light circuit de-energised.**
-6. **Mains last.** Only after CH7 has been verified silent through several resets, wire the 220 V grow light and confirm switching via command `7`.
+6. **Servo.** Wire the MG996R (with bulk capacitor). Command the sweep and confirm smooth full-range motion with no rail brownout (the LCD/sensors should not glitch during motion).
+7. **Mains last.** Only after CH7 has been verified silent through several resets, wire the 220 V grow light and confirm switching via command `7`.
 
-Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `x` all off, `s` re-scan I2C, `h` help.
+Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `x` all off, `s` re-scan I2C, `h` help.
 
 ---
 
@@ -436,12 +454,14 @@ Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `x` all off, `s` re-sca
 | GPIO 16 | digital out | Relay IN5 — Ultrasonic humidifier | logic 3.3 V |
 | GPIO 4 | digital out | Relay IN6 — Normal Lights | logic 3.3 V |
 | GPIO 23 | digital out | Relay IN7 — Grow light (220 V) | logic 3.3 V |
+| GPIO 25 | PWM out | MG996R servo — signal | 5 V (servo power) |
 | 5V | power in | 5 V rail (standalone) / USB (bench) | — |
 | 3V3 | — | do not drive | — |
 | GND | ground | common ground node | — |
-| GPIO 25 | spare | future / servo | — |
 
 **Reserved/unusable:** GPIO 6–11 (flash), 1/3 (UART0), 0/2/12/15 (strapping).
+
+**ESP32-CAM:** separate node — no pins on the ESP32-WROOM-32E are allocated to it.
 
 ---
 
@@ -449,13 +469,13 @@ Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `x` all off, `s` re-sca
 
 | Category | Items |
 |---|---|
-| Controllers | ESP32-WROOM-32E (×1), ESP32-CAM (×1, separate node) |
+| Controllers | ESP32-WROOM-32E (×1), ESP32-CAM (×1, separate node — not wired this phase) |
 | Sensors | BMP280 ×2, DHT11 ×2, MQ135 ×1, LDR ×2, soil FC-28 ×1, water level ×1 |
 | Interface | 16×2 I2C LCD ×1, rotary encoder ×1, level converter ×1 |
-| Actuation | 8-ch relay ×1; loads: 3× DC fan, pump, ultrasonic humidifier, LED string, 220 V grow light |
+| Actuation | 8-ch relay ×1, MG996R servo ×1; loads: 3× DC fan, pump, ultrasonic humidifier, LED string, 220 V grow light |
 | Power | S-25-5 PSU (5 V/5 A) ×1, LM2596/HW-411 buck ×1 |
-| Passives | 2.2 kΩ ×1, 3.3 kΩ ×1 (MQ135 divider); 10 kΩ ×7 (relay pull-ups) |
+| Passives | 2.2 kΩ ×1, 3.3 kΩ ×1 (MQ135 divider); 10 kΩ ×7 (relay pull-ups); 470–1000 µF ×1 (servo bulk cap) |
 
 ---
 
-*End of document — Phase 1 wiring locked. Next phase: sensor abstraction layer and threshold control loops (Phase 2).*
+*End of document — Phase 1 wiring locked.*

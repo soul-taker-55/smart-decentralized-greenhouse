@@ -1,0 +1,19 @@
+@startuml
+left to right direction
+skinparam shadowing false
+skinparam rectangleBorderColor #555
+skinparam ArrowColor #555
+
+rectangle "220-230 V AC" as ac
+rectangle "S-25-5 PSU" as psu
+rectangle "5 V rail" as r5 #ffe8e0
+rectangle "LM2596 buck" as buck
+rectangle "3.3 V rail" as r33 #e0ecff
+rectangle "5 V consumers" as c5 #ffe8e0
+
+ac   --> psu
+psu  --> r5
+r5   --> buck
+buck --> r33
+r5   --> c5 : also feeds directly
+@enduml
