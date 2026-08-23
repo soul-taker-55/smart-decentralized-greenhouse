@@ -2,11 +2,11 @@
 
 **Phase 1 — Wiring and Hardware Bring-up**
 **Controller:** ESP32-WROOM-32E
-**Document scope:** Complete electrical specification from the 220–230 V mains source through every ESP32 pin, for Phase 1 only. The system also includes the ESP32-CAM as a separate, independently-powered node; it is not wired to the main controller in this phase and appears here at inventory level only.
+**Document scope:** Complete electrical specification from the 220–230 V mains source through every ESP32 pin, for Phase 1 only. The system also includes the ESP32-CAM as a separate node — it has no data connection to the main controller, though it draws power from the same 5 V supply; it appears here at inventory level only.
 
 | Field | Value |
 |---|---|
-| Document version | 1.4 |
+| Document version | 1.7 |
 | Date | 19 June 2026 |
 | Phase | 1 (hardware bring-up) |
 | Status | Wiring locked — ready to build |
@@ -21,15 +21,21 @@
 4. [Electrical Wiring Color Convention](#4-electrical-wiring-color-convention)
 5. [Power Supply Architecture](#5-power-supply-architecture)
 6. [Grounding Topology](#6-grounding-topology)
-7. [ESP32 Pin Architecture](#7-esp32-pin-architecture)
-8. [Sensor & Peripheral Wiring Configuration](#8-sensor--peripheral-wiring-configuration)
-   - 8.1 Analog Sensors
-   - 8.2 Digital Sensors
-   - 8.3 I2C Bus
-   - 8.4 Actuators & Outputs (Relay)
-   - 8.5 Servo Motor (MG996R)
-   - 8.6 Human Interface (Rotary Encoder & LCD)
-   - 8.7 Reserved Pins
+7. [ESP32-WROOM-32E — Pin Architecture & Wiring](#7-esp32-wroom-32e--pin-architecture--wiring)
+   - 7.1 Pin reference (general)
+   - 7.2 This project's pin use
+   - 7.3 Analog Sensors
+   - 7.4 Digital Sensors
+   - 7.5 I2C Bus
+   - 7.6 Actuators & Outputs (Relay)
+   - 7.7 Servo Motor (MG996R)
+   - 7.8 Human Interface (Rotary Encoder & LCD)
+   - 7.9 Reserved Pins
+8. [ESP32-CAM](#8-esp32-cam)
+   - 8.1 Overview
+   - 8.2 Power
+   - 8.3 Programming (flashing)
+   - 8.4 Data link to main controller
 9. [Boot Safety & Critical Design Notes](#9-boot-safety--critical-design-notes)
 10. [Bring-up & Verification Procedure](#10-bring-up--verification-procedure)
 11. [Appendix A — Master Pin Reference](#appendix-a--master-pin-reference)
@@ -72,7 +78,7 @@ Edge power and signal flow:
    └──► Grow light (220 V), switched by relay CH7 contacts (mains-isolated)
 ```
 
-The system also includes the **ESP32-CAM**, a separate camera node that operates as an independent WiFi device with its own power and network path. It is **not wired to the ESP32-WROOM-32E** and is outside the scope of this phase's wiring; it is documented here at inventory level only and will be detailed separately.
+The system also includes the **ESP32-CAM**, a separate camera node that runs its own firmware and joins WiFi independently. It has **no data connection to the ESP32-WROOM-32E** — no shared GPIO or signal lines — but it **is powered from the same S-25-5 5 V rail** (see §5). Its vision function is outside the scope of this phase's wiring and will be detailed separately.
 
 ---
 
@@ -83,7 +89,7 @@ The system also includes the **ESP32-CAM**, a separate camera node that operates
 | No | Component | Qty | Power rail | Signal type | Function | Key notes |
 |----|-----------|-----|-----------|-------------|----------|-----------|
 | 1 | ESP32-WROOM-32E | 1 | 5 V → onboard 3.3 V reg | — (host) | Main edge controller | WiFi/BT; ADC2 unusable with WiFi |
-| 2 | ESP32-CAM | 1 | independent | — | Camera node (separate) | Not wired in this phase — to be detailed later |
+| 2 | ESP32-CAM | 1 | 5 V (shared) | — | Camera node (separate) | No data link to main ESP32; brownout-sensitive — decouple near 5 V pin |
 | 3 | BMP280 (RobotDyn 7-pin) | 2 | 3.3 V | I2C | Inner/outer temperature + pressure | Addr 0x76 / 0x77; **no humidity** |
 | 4 | DHT11 (3-pin module) | 2 | 3.3 V | Digital 1-wire | Inner/outer relative humidity | ±5 % RH, integer output (known weak) |
 | 5 | MQ135 gas sensor | 1 | **5 V** | Analog (5 V) | Air-quality / gas | Heater needs 5 V; **divider required**; 24–48 h burn-in |
@@ -102,20 +108,20 @@ The system also includes the **ESP32-CAM**, a separate camera node that operates
 | 18 | LED grow light | 1 | **220 V** (switched) | — (load) | Photoperiod lighting | Non-dimmable; mains-isolated |
 | 19 | S-25-5 PSU | 1 | 220 V in / 5 V out | — | Primary 5 V supply | 25 W, 5 A |
 | 20 | LM2596 / HW-411 buck | 1 | 5 V in / 3.3 V out | — | 3.3 V rail generator | Adjustable; set to 3.30 V |
-| 21 | Resistors (2.2 kΩ, 3.3 kΩ, 10 kΩ ×7) | 9 | — | — | Passives | To be detailed later (see §8) |
+| 21 | Resistors (2.2 kΩ, 3.3 kΩ, 10 kΩ ×7) | 9 | — | — | Passives | To be detailed later (see §7.3 & §7.6) |
 | 22 | Electrolytic cap 470–1000 µF | 1 | — | — | Servo bulk decoupling | Across servo V+/GND |
 
 ### 3.2 Extended component notes
 
 **ESP32-WROOM-32E.** Dual-core Xtensa LX6 @ 240 MHz, 2.4 GHz WiFi + BT, 3.3 V logic. Powered on the bench via USB (5 V → onboard AMS1117 → 3.3 V); for standalone operation the 5 V rail feeds the 5 V pin. Two ADC blocks exist, but **ADC2 shares hardware with the WiFi radio** and returns garbage once WiFi is up — hence the ADC1-only rule for all analog sensors.
 
-**ESP32-CAM.** A separate camera-equipped microcontroller operating as an independent WiFi node, with its own power supply and network path. It is **not electrically connected** to the ESP32-WROOM-32E. It is listed for inventory completeness; its wiring and function are out of scope for this phase and will be detailed separately.
+**ESP32-CAM.** A separate camera-equipped microcontroller that runs its own firmware and joins WiFi independently. It has **no data connection** to the ESP32-WROOM-32E (no shared GPIO or signal lines) but is **powered from the shared S-25-5 5 V rail** — feed its **5 V pin** (the board regulates to 3.3 V internally). It is **brownout-sensitive**, so it needs a short, solid 5 V feed and its own decoupling capacitor near the 5 V pin; the rail's transients (servo stall, pump inrush) can otherwise reset it. Its vision function is out of scope for this phase and will be detailed separately.
 
 **BMP280 (7-pin RobotDyn variant).** Exposes `5V · 3V3 · GND · SCK · SDO · SDI · CS` and supports both I2C and SPI. For I2C it requires two deliberate pin states: **CS tied HIGH** selects I2C mode, and **SDO selects the address** (GND → 0x76, 3.3 V → 0x77) — exactly how the two sensors are differentiated on a shared bus. Measures pressure 300–1100 hPa and temperature −40 to +85 °C; deliberately provides **no humidity**.
 
 **DHT11.** Humidity 20–90 % RH at ±5 %, integer resolution, ≥1 s between reads. The 3-pin module carries an onboard pull-up, so no external resistor is needed. Powered at 3.3 V so its open-drain data line idles at an ESP32-safe level.
 
-**MQ135.** Tin-dioxide gas sensor; its internal **heater requires 5 V**, so it cannot run at 3.3 V. The analog output (AO) can swing to nearly the 5 V rail, so it passes through a divider before reaching the ADC (§8.1). Requires **24–48 h burn-in** for stable readings. The 5 V digital output (DO) is **left unconnected**.
+**MQ135.** Tin-dioxide gas sensor; its internal **heater requires 5 V**, so it cannot run at 3.3 V. The analog output (AO) can swing to nearly the 5 V rail, so it passes through a divider before reaching the ADC (§7.3). Requires **24–48 h burn-in** for stable readings. The 5 V digital output (DO) is **left unconnected**.
 
 **LDR / soil / water modules.** All three are breakout modules with onboard signal conditioning that output a 0-to-VCC analog voltage. Powered at **3.3 V**, their outputs already land within the ADC range, so **none of them needs an external divider** — the MQ135 is the only analog part that does. The soil (resistive FC-28) and water-level (resistive trace) probes corrode under continuous DC bias and should not be left energised for long periods.
 
@@ -123,7 +129,7 @@ The system also includes the **ESP32-CAM**, a separate camera node that operates
 
 **8-channel relay module.** Opto-isolated, **active-LOW** (GPIO LOW = relay ON). SONGLE SRD-05VDC-SL-C relays, contacts rated ~10 A @ 250 VAC / 30 VDC. The board carries a removable **VCC ↔ JD-VCC jumper**: removing it lets the coils run from 5 V (JD-VCC) while the opto-input logic side runs from 3.3 V (VCC), so a 3.3 V GPIO HIGH fully releases the relay.
 
-**MG996R servo.** High-torque metal-gear positional servo, 4.8–7.2 V, controlled by a 50 Hz PWM signal (≈ 500–2500 µs pulse → 0–180°). Idle draw is small, but **stall current can reach ~2.5 A**, so it is treated as a transient high-current load on the 5 V rail and given a bulk capacitor (§8.5). The 3.3 V PWM signal from the ESP32 is normally sufficient (logic threshold ~2.5 V). It is the **only** PWM-driven actuator; all others are binary relay loads.
+**MG996R servo.** High-torque metal-gear positional servo, 4.8–7.2 V, controlled by a 50 Hz PWM signal (≈ 500–2500 µs pulse → 0–180°). Idle draw is small, but **stall current can reach ~2.5 A**, so it is treated as a transient high-current load on the 5 V rail and given a bulk capacitor (§7.7). The 3.3 V PWM signal from the ESP32 is normally sufficient (logic threshold ~2.5 V). It is the **only** PWM-driven actuator; all others are binary relay loads.
 
 **Power supplies.** The **S-25-5** converts mains to 5 V at up to 5 A. The **LM2596** buck steps 5 V down to a regulated **3.30 V** (~1.7 V headroom, adequate). Set and verify the LM2596 output with a multimeter **before** connecting any 3.3 V device.
 
@@ -148,7 +154,7 @@ A consistent color code makes the harness self-documenting and reduces miswiring
 **Notes**
 
 - **AC mains wiring is intentionally excluded from this color convention.** The Live / Neutral / Earth conductors are distinguished by their heavier cable gauge and physical separation, not by color, so no DC/mains color collision applies. (Mains isolation requirements are covered in §9.)
-- **Green has one exception:** the MQ135 signal upstream of its divider carries up to 5 V; it only becomes 0–3 V after the 2.2 kΩ/3.3 kΩ divider (§8.1). The 0–3.3 V label describes the wire at the ESP32 pin, not at the sensor.
+- **Green has one exception:** the MQ135 signal upstream of its divider carries up to 5 V; it only becomes 0–3 V after the 2.2 kΩ/3.3 kΩ divider (§7.3). The 0–3.3 V label describes the wire at the ESP32 pin, not at the sensor.
 - **Purple is the control pulse only:** the MG996R servo's power is a separate red 5 V wire; the purple wire carries just the 3.3 V PWM signal.
 
 ---
@@ -170,19 +176,20 @@ A consistent color code makes the harness self-documenting and reduces miswiring
 
 ### 5.2 Rail allocation
 
-**5 V rail** powers: ESP32 5 V pin (standalone only) · relay **JD-VCC** (coils) · LCD VCC · MQ135 VCC · **MG996R servo (V+)** · all switched DC loads (3 fans, pump, humidifier, LED string) through the relay **contacts**.
+**5 V rail** powers: ESP32 5 V pin (standalone only) · relay **JD-VCC** (coils) · LCD VCC · MQ135 VCC · **MG996R servo (V+)** · **ESP32-CAM (5 V pin)** · all switched DC loads (3 fans, pump, humidifier, LED string) through the relay **contacts**.
 
 **3.3 V rail** powers: both BMP280 · both DHT11 · both LDR · soil module · water sensor · rotary encoder · relay **logic VCC** (opto-input side) · level-converter **LV** side.
 
 **220 V mains** feeds: the S-25-5 input · the grow light (through CH7 relay contacts, isolated).
 
-**ESP32-CAM** is powered independently of these rails and is excluded from the current budget below.
+**ESP32-CAM** shares the 5 V rail via its 5 V pin and is included in the current budget below. Because it is brownout-sensitive, give it a dedicated decoupling capacitor close to the pin.
 
 ### 5.3 Current budget (estimates — verify by measurement)
 
 | Rail | Consumer | Approx. current |
 |---|---|---|
 | 5 V | ESP32 (standalone, WiFi peak) | ~250 mA |
+| 5 V | ESP32-CAM (WiFi + camera active) | ~0.2–0.3 A (brief higher spikes) |
 | 5 V | Relay coils (7 × ~80 mA, all on) | ~560 mA |
 | 5 V | MQ135 heater | ~150 mA |
 | 5 V | LCD (+ backlight) | ~25 mA |
@@ -197,7 +204,7 @@ A consistent color code makes the harness self-documenting and reduces miswiring
 | 3.3 V | Relay opto inputs (7 × ~5 mA) | ~35 mA |
 | **3.3 V** | **Total** | **~85–100 mA** |
 
-The simultaneous high-current case — servo motion plus pump, humidifier, and fans — is the stress point. Measure it, fit the bulk capacitor at the servo (§8.5), and avoid commanding all high-current loads at the same instant. The MG996R's stall current alone can momentarily approach half the supply's rating.
+The simultaneous high-current case — servo motion plus pump, humidifier, and fans — is the stress point. Measure it, fit the bulk capacitor at the servo (§7.7), and avoid commanding all high-current loads at the same instant. The MG996R's stall current alone can momentarily approach half the supply's rating.
 
 > The "0.08 mA" fan figure on the relay-board sketch is a typo — real 5 V fans draw ~80–200 mA.
 
@@ -217,38 +224,46 @@ A single **common ground** ties together: S-25-5 GND, LM2596 input/output GND, E
 
 ---
 
-## 7. ESP32 Pin Architecture
+## 7. ESP32-WROOM-32E — Pin Architecture & Wiring
 
-### 7.1 Design rules applied
+### 7.1 Pin reference (general)
 
-| Rule | Reason | Pins affected |
+| Pin Type | Pins | Description |
 |---|---|---|
-| Analog only on ADC1 | ADC2 fails with WiFi active | 32, 33, 34, 35, 36, 39 |
-| Input-only pins for analog inputs | 34/35/36/39 cannot output and have no pull-ups | 34, 35, 36, 39 |
-| Avoid strapping pins for driven loads | Boot-mode interference / glitches | 0, 2, 12, 15 (avoided); 5 (used — see §9) |
-| Never use flash pins | Connected to SPI flash | 6, 7, 8, 9, 10, 11 |
-| Reserve UART0 | USB serial + programming | 1 (TX), 3 (RX) |
+| Power Supply | 3V3, GND | 3V3 powers the module (up to ~500 mA peak during Wi-Fi transmission); GND is the common ground return. |
+| Enable / Reset | EN (CHIP_PU) | High (> 0.75×VDD) enables the chip; Low (< 0.25×VDD) forces a hardware reset. Must be held high for normal operation. |
+| Input-Only | GPIO 34, 35, 36 (SENSOR_VP), 39 (SENSOR_VN) | Input-only pins; also ADC1 channels. Cannot drive outputs and have no software-selectable internal pull-up/pull-down. |
+| General-Purpose I/O | GPIO 4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33 | Bidirectional digital I/O; support PWM, and (pin-dependent) ADC, DAC, touch, SPI, I²C, UART. |
+| I²C | GPIO 21 (SDA), 22 (SCL) | Default two-wire serial bus for I²C peripherals. |
+| Strapping | GPIO 0, 2, 5, 12 (MTDI), 15 (MTDO) | Sampled at reset to set boot mode and flash voltage. Any pull-up/pull-down must respect the required boot level. |
+| UART0 | GPIO 1 (TX0), 3 (RX0) | Primary serial port for flashing, debugging, and terminal logging via the USB-to-UART bridge. |
+| Flash-Reserved | GPIO 6, 7, 8, 9, 10, 11 | Hard-wired to the module's internal SPI flash. Must not be used or connected externally. |
 
-### 7.2 Functional pin groups
+**General hardware rules**
 
-- **Analog inputs (ADC1):** GPIO 36, 39, 34, 35, 32
-- **I2C bus:** GPIO 21 (SDA), 22 (SCL)
-- **Digital sensor inputs:** GPIO 26, 27 (DHT11); 13, 14, 33 (encoder)
-- **Relay control outputs:** GPIO 19, 18, 5, 17, 16, 4, 23
-- **PWM output:** GPIO 25 (MG996R servo)
-- **Power:** 5 V pin, 3V3 pin (unused as input), GND
+- **Logic level:** all GPIO are 3.3 V; applying 5 V damages the chip.
+- **ADC2 vs Wi-Fi:** ADC2 pins (GPIO 0, 2, 4, 12, 13, 14, 15, 25, 26, 27) cannot be read while Wi-Fi is active. Use ADC1 (GPIO 32–39) for continuous analog reads.
+- **Boot-mode pins:** at reset GPIO 0 and 15 must be high, GPIO 12 must be low, and GPIO 2 must be low or floating. Nothing wired to them may fight those levels, or the board will not boot.
 
-The complete pin-by-pin table is in [Appendix A](#appendix-a--master-pin-reference).
+### 7.2 This project's pin use
+
+- **ADC1 fully used for analog:** GPIO 32, 34, 35, 36, 39 carry the analog sensors (MQ135, soil, water, LDR ×2) — a direct consequence of the ADC2-with-Wi-Fi restriction above.
+- **GPIO 33 borrowed as a digital input:** although it is an ADC1 pin, here it is the rotary-encoder switch (SW) — a digital input, not analog.
+- **Digital-input group:** encoder CLK/DT/SW on GPIO 13/14/33 and DHT11 ×2 on GPIO 26/27, all using internal pull-ups.
+- **Output group:** relay channels IN1–IN7 on GPIO 4, 5, 16, 17, 18, 19, 23, plus the MG996R servo PWM on GPIO 25.
+- **Strapping-pin exception — GPIO 5:** the one strapping pin we drive (a relay output). It is safe because it idles high (relay off) and its boot glitch only briefly affects a fan/light. GPIO 0, 2, 12, 15 are left unused. This is the single deliberate exception to the general "avoid strapping pins" rule.
+- **Relay boot-safety ties to the boot-mode rule:** every relay line gets a 10 kΩ pull-up to 3.3 V and is driven high first in firmware — pull-ups on driven pins are fine here precisely because they respect the required boot levels (see §9).
+- **I²C bus is shared:** GPIO 21/22 carry both BMP280s (3.3 V side) and the LCD (5 V side, via the level converter).
+
+The complete pin-by-pin assignment is in [Appendix A](#appendix-a--master-pin-reference).
 
 > These assignments belong to the main ESP32-WROOM-32E. The ESP32-CAM is a separate node with its own pins and is not part of this pin map.
 
 ---
 
-## 8. Sensor & Peripheral Wiring Configuration
+The following subsections cover everything wired to the main ESP32-WROOM-32E. In every table: connect the module's power pin to the indicated rail, its ground pin to common GND, and its signal pin to the listed ESP32 GPIO.
 
-In every table below: connect the module power pin to the indicated rail, the ground pin to common GND, and the signal pin to the listed ESP32 GPIO.
-
-### 8.1 Analog Sensors
+### 7.3 Analog Sensors
 
 All analog sensors sit on **ADC1**. The four input-only pins (34/35/36/39) carry the passive modules; GPIO 32 carries the MQ135. **Only the MQ135 needs a divider.**
 
@@ -276,7 +291,7 @@ At a worst-case 5.0 V AO this yields **3.0 V** at the pin — safely under the A
 
 **ADC configuration:** `analogReadResolution(12)` (0–4095), `ADC_11db` attenuation (~0–3.1 V usable).
 
-### 8.2 Digital Sensors
+### 7.4 Digital Sensors
 
 | Sensor | Power | GND | Data → ESP32 |
 |---|---|---|---|
@@ -285,7 +300,7 @@ At a worst-case 5.0 V AO this yields **3.0 V** at the pin — safely under the A
 
 > Module pin rule: on these 3-pin boards the **middle pin is always VCC**; the end pins are signal and GND. Match the silkscreen, not the wire color.
 
-### 8.3 I2C Bus
+### 7.5 I2C Bus
 
 One bus (`GPIO 21 = SDA`, `GPIO 22 = SCL`) carries **both BMP280s and the LCD**, split into two voltage domains by the level converter.
 
@@ -321,7 +336,7 @@ One bus (`GPIO 21 = SDA`, `GPIO 22 = SCL`) carries **both BMP280s and the LCD**,
 
 **Expected addresses on the bus:** `0x76`, `0x77`, and the LCD at `0x27` (or `0x3F`).
 
-### 8.4 Actuators & Outputs (Relay)
+### 7.6 Actuators & Outputs (Relay)
 
 The 8-channel **active-LOW** relay module switches the binary loads. Seven channels are used; IN8 is free.
 
@@ -349,7 +364,7 @@ The 8-channel **active-LOW** relay module switches the binary loads. Seven chann
 
 > **GPIO 5** is a strapping pin used deliberately for the Internal Fan — see §9 for the justification. It is never used for the grow light.
 
-### 8.5 Servo Motor (MG996R)
+### 7.7 Servo Motor (MG996R)
 
 The MG996R is the only PWM-controlled actuator in the build. It is driven by a 50 Hz signal on a single pin; power and ground come from the 5 V rail and common ground.
 
@@ -367,7 +382,7 @@ Configuration notes:
 - GPIO 25 is full-GPIO and LEDC-PWM capable; it is the only output pin used for PWM.
 - On boot the firmware drives the servo to a known neutral angle (90°). Set this to your mechanism's safe rest position.
 
-### 8.6 Human Interface (Rotary Encoder & LCD)
+### 7.8 Human Interface (Rotary Encoder & LCD)
 
 **Rotary encoder** — uses the ESP32 internal pull-ups (no external resistors). Must be on full-GPIO pins (not the input-only 34/35/36/39).
 
@@ -379,9 +394,9 @@ Configuration notes:
 | DT | — | **GPIO 14** (INPUT_PULLUP) |
 | SW | — | **GPIO 33** (INPUT_PULLUP) |
 
-**LCD** — see §8.3 (an I2C device on the 5 V side of the level converter).
+**LCD** — see §7.5 (an I2C device on the 5 V side of the level converter).
 
-### 8.7 Reserved Pins
+### 7.9 Reserved Pins
 
 | Pin(s) | Status | Reason |
 |---|---|---|
@@ -395,6 +410,43 @@ All other usable GPIOs are assigned; no free full-GPIO pins remain after the ser
 
 ---
 
+## 8. ESP32-CAM
+
+The ESP32-CAM is the system's **second controller** — a camera node for the vision layer. In this phase it is present and powered on the board but exchanges **no data** with the ESP32-WROOM-32E; the two share only the power rails and will coordinate over the network in a later phase. It is documented here at the same level as §7, but briefly, since its vision role is out of scope for Phase 1.
+
+### 8.1 Overview
+
+AI-Thinker ESP32-CAM: an ESP32 module with an OV2640 camera and a microSD slot, and an onboard 3.3 V regulator (so it accepts a 5 V supply). It runs its own firmware and joins Wi-Fi independently. It has **no USB port** — it is flashed through an external USB-to-TTL (FTDI) adapter (§8.3). None of its pins connect to the main controller.
+
+### 8.2 Power
+
+| CAM pin | Connects to | Note |
+|---|---|---|
+| 5V | 5 V rail (S-25-5) | preferred input; onboard regulator produces 3.3 V |
+| GND | common GND | shared reference |
+
+The ESP32-CAM is **brownout-sensitive**: give it a short, solid 5 V feed and a decoupling capacitor (≥ 100 µF, 470 µF preferred) close to its 5 V pin. Transients on the shared rail (servo stall, pump inrush) can otherwise reset it. Never power it from the WROOM-32E's 3V3 pin.
+
+### 8.3 Programming (flashing)
+
+The board has no USB, so flashing uses a temporary USB-to-TTL adapter — a bench connection only, not part of the runtime wiring:
+
+| CAM pin | USB-TTL (FTDI) |
+|---|---|
+| 5V | 5V |
+| GND | GND |
+| U0T (GPIO 1) | RX |
+| U0R (GPIO 3) | TX |
+| GPIO 0 | GND — **only while flashing** |
+
+Tie GPIO 0 to GND to enter download mode, upload the firmware, then remove that link and reset for normal operation.
+
+### 8.4 Data link to main controller
+
+None in this phase. The ESP32-CAM and the ESP32-WROOM-32E are not wired together — no shared GPIO, I2C, or UART — and no pin on the main controller is allocated to the camera (Appendix A). Coordination between the two runs over the network and belongs to a later phase.
+
+---
+
 ## 9. Boot Safety & Critical Design Notes
 
 **Relay boot safety.** Every ESP32 GPIO is high-impedance from reset until firmware runs. On an active-LOW board a floating input can drift LOW = relay ON. Three layers prevent this, mattering most for the 220 V grow light:
@@ -405,7 +457,7 @@ All other usable GPIOs are assigned; no free full-GPIO pins remain after the ser
 
 **GPIO 5 justification.** GPIO 5 is a strapping pin (SDIO slave timing), but that strap is irrelevant when booting from SPI flash, and it has an internal pull-up so it idles HIGH = relay OFF. Its only quirk is a possible brief output blip from the ROM bootloader before `setup()` runs. On the **Internal Fan**, a sub-second twitch at power-on is harmless — which is precisely why a fan, not the grow light, is assigned here.
 
-**Servo at boot.** The firmware sets the MG996R to a known neutral angle (90°) at startup. The 5 V rail must tolerate the servo's transient current — the bulk capacitor at the servo (§8.5) is mandatory, not optional.
+**Servo at boot.** The firmware sets the MG996R to a known neutral angle (90°) at startup. The 5 V rail must tolerate the servo's transient current — the bulk capacitor at the servo (§7.7) is mandatory, not optional.
 
 **Mains isolation.** The grow-light relay's COM/NO contacts carry 220 V and are isolated dry contacts. That side never touches logic ground; keep its wiring physically separated and strain-relieved.
 
@@ -469,7 +521,7 @@ Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `x` al
 
 | Category | Items |
 |---|---|
-| Controllers | ESP32-WROOM-32E (×1), ESP32-CAM (×1, separate node — not wired this phase) |
+| Controllers | ESP32-WROOM-32E (×1), ESP32-CAM (×1, separate node — no data link, shares 5 V) |
 | Sensors | BMP280 ×2, DHT11 ×2, MQ135 ×1, LDR ×2, soil FC-28 ×1, water level ×1 |
 | Interface | 16×2 I2C LCD ×1, rotary encoder ×1, level converter ×1 |
 | Actuation | 8-ch relay ×1, MG996R servo ×1; loads: 3× DC fan, pump, ultrasonic humidifier, LED string, 220 V grow light |
