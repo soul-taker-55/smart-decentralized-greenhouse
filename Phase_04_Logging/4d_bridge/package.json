@@ -1,0 +1,15 @@
+{
+  "name": "sdigf-bridge",
+  "version": "0.1.0",
+  "description": "MQTT to Postgres bridge for SDIGF — Phase 04d",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1",
+    "pg": "^8.13.1"
+  },
+  "license": "MIT"
+}
