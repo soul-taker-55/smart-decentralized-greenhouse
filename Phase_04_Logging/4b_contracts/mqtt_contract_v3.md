@@ -471,7 +471,7 @@ and the ESP32 validates against its safety envelope.
 ```json
 {
   "sys": {
-    "telemetry_interval_s": 10,
+    "telemetry_interval_s": 30,
     "stale_after_s": 60
   },
   "temp": {
