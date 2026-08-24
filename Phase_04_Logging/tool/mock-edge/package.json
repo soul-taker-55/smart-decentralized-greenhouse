@@ -1,0 +1,14 @@
+{
+  "name": "sdigf-mock-edge",
+  "version": "0.1.0",
+  "description": "Mock ESP32 edge node for SDIGF — publishes telemetry on the frozen MQTT contract",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "mqtt": "^5.10.1"
+  },
+  "license": "MIT"
+}
