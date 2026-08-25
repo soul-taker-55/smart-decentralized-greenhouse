@@ -8,7 +8,13 @@ import { config } from '../config.js';
 import { enqueue, stats } from '../db.js';
 import { log } from '../log.js';
 
-const VALID_CFG_SRC = new Set(['mqtt', 'nvs']);
+// `none` = the device has never received a config and is running compiled-in
+// defaults. It is a real first-boot state, distinct from `nvs` (restored
+// last-known-good after a reboot with no broker). Without it here, first-boot
+// health messages wrote NULL to edge_events.cfg_src — indistinguishable from a
+// malformed field, and erasing exactly the case the autonomy argument wants to
+// show working. Contract v4 §3.3.
+const VALID_CFG_SRC = new Set(['mqtt', 'nvs', 'none']);
 
 const insertEvent = (label, fields) =>
   enqueue(label, async (client) => {
