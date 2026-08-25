@@ -307,7 +307,7 @@ position indefinitely, because a stalled MG996R draws ~2.5 A and will brown out 
 | `fw` | string | Firmware version |
 | `cfg.ver` | int | Config version **currently running** |
 | `cfg.hash` | string | Hash **as received** from the server. The edge stores and echoes it; it does not recompute it (see §5). |
-| `cfg.src` | string | `mqtt` (received from server), `nvs` (last-known-good after restart with no broker), or `none` (never received a config — running compiled-in defaults) |
+| `cfg.src` | string | `mqtt` (received from server) or `nvs` (last-known-good after restart with no broker) |
 | `cfg.verify` | string | `enforced` \| `unsupported`. **Declared by the device, never supplied by the server** — see §3.4. |
 | `mqtt_reconnects` | int | Reconnect count since boot — a rising number indicates link instability |
 | `boot_reason` | string | `power_on`, `watchdog`, `panic`, `brownout`, `sw_reset` |
@@ -315,13 +315,6 @@ position indefinitely, because a stalled MG996R draws ~2.5 A and will brown out 
 **`cfg.src` is load-bearing for the thesis.** It is the field that makes edge autonomy visible
 and provable: when the broker is unreachable and the ESP32 restarts, this reads `nvs`, showing
 the greenhouse ran correctly on last-known-good config with no server involvement.
-
-**`none` is a distinct third state, not an absence.** A freshly flashed device that has never
-reached a broker is running compiled-in defaults — it has nothing in NVS to restore and has
-received nothing over MQTT. Collapsing that into `null` would make it indistinguishable from a
-malformed or missing field, and would erase the first-boot case from the record precisely where
-the autonomy argument wants to show it working. The bridge and the `edge_events.cfg_src` column
-accept all three values.
 
 **`boot_reason` = `brownout`** is the specific signature of a stalled canopy servo or an
 ESP32-CAM inrush on the shared 5 V rail. Worth capturing rather than diagnosing blind.
@@ -1056,25 +1049,9 @@ public key, uncompressed 65 bytes (0x04 ‖ X ‖ Y) — the form the ESP32 stor
   04515c3d6eb9e396b904d3feca7f54fdcd0cc1e997bf375dca515ad0a6c3b4035f
     4536be3a50f318fbf9a5475902a221502bef0d57e08c53b2cc0a56f17d9f9354
 
-message signed — the cfg_hash, 32 raw bytes
+message signed — the cfg_hash, 32 bytes
   d5aebb09ecf07ad61c7accb9eb78d160d65e5ffd1c118d893fb300f140e1fbf0
 ```
-
-> **⚠ The signature is over those 32 bytes DIRECTLY. Do not hash them again.**
->
-> `cfg_hash` is already the SHA-256 digest of `cfg_canonical`. ECDSA-P256-with-SHA-256 normally
-> takes a *message* and hashes it internally; here the digest is supplied pre-computed, so
-> verification must use the **prehashed** form of the API:
->
-> | Environment | Correct call |
-> |---|---|
-> | Node / WebCrypto | verify over the 32-byte digest as the data, with the digest already computed |
-> | Python `cryptography` | `ECDSA(Prehashed(SHA256()))` |
-> | mbedTLS | `mbedtls_ecdsa_read_signature` takes the hash directly — this is its default behaviour |
->
-> Passing the 32 bytes to an API that hashes them again produces SHA-256 of the digest, which is
-> not what was signed, and verification fails with no indication of why. This is the most likely
-> reason an implementer would conclude the vector below is broken. It is not.
 
 **Wire format — raw `r‖s`, 64 bytes.** This is what appears in `sigs[].sig`:
 
@@ -1083,16 +1060,7 @@ message signed — the cfg_hash, 32 raw bytes
 757e61f5a1dd73e1589587ed7314cfffa623a901f85af1794d5e6a9654adb64d
 ```
 
-**The same signature as ASN.1 DER, 71 bytes** — what mbedTLS must receive after conversion.
-
-Full hex, copy this rather than the annotated breakdown below:
-
-```
-30450221008106949b3796d38f882a6ce174cc1f6d8ae2b2a27535bfa211e1b36c873be53b0220757e61f5a1dd73e1589587ed7314cfffa623a901f85af1794d5e6a9654adb64d
-```
-
-The same bytes, annotated — **illustrative only, the `…` are elisions and this form will not
-verify if copied**:
+**The same signature as ASN.1 DER, 71 bytes** — what mbedTLS must receive after conversion:
 
 ```
 3045
@@ -1144,8 +1112,6 @@ bytes. That is expected. Verification against the fixed public key is what must 
 | 2026-08-25 | §5: canonicalization scope widened from `cfg` to the signed object; the rules themselves unchanged |
 | 2026-08-25 | §5: trust-model section rewritten. Residual gaps stated explicitly — deferred key distribution, firmware that may not ship, and administrator-deletable ledger history |
 | 2026-08-25 | §3.8: `down/keys` reserved — signed key list under a device-held root key, with the bootstrap case noted. Deliberately not fully specified |
-| 2026-08-25 | §5: test vector 2 — full DER hex added, and prehashed verification stated explicitly. The elided form was copyable-but-wrong, and the doc never said the signature is over the digest directly rather than over a re-hash of it |
-| 2026-08-25 | §3.3: `cfg.src` gains `none` — the never-configured first-boot state, previously logged as NULL and indistinguishable from a malformed field |
 | 2026-08-25 | §1: **correction** — the claim that retention was verified across a broker restart was false. Tested 2026-08-25 and it failed; EMQX defaulted the retainer to `ram`. Fixed to `disc` and re-verified |
 
 ---
