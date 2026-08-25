@@ -5,6 +5,7 @@ import StatusStrip from './components/StatusStrip.jsx';
 import SensorPanel from './components/SensorPanel.jsx';
 import ActuatorPanel from './components/ActuatorPanel.jsx';
 import ConfigPage from './components/ConfigPage.jsx';
+import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -187,16 +188,10 @@ function ActuatorsPage({ status }) {
   );
 }
 
-/** Placeholder for a page not yet built in this phase. */
-function Placeholder({ title, children }) {
-  return (
-    <>
-      <div className="h">
-        <h1>{title}</h1>
-      </div>
-      <div className="emptystate">{children}</div>
-    </>
-  );
+/** Activity, polled so device events appear without a manual refresh. */
+function ActivityRoute() {
+  const { data, loaded } = usePoll(() => api.events(150), 15000);
+  return <ActivityPage events={data} loaded={loaded} />;
 }
 
 export default function App() {
@@ -212,27 +207,8 @@ export default function App() {
             <Route path="/" element={<LivePage status={status} />} />
             <Route path="/actuators" element={<ActuatorsPage status={status} />} />
             <Route path="/config" element={<ConfigPage />} />
-            <Route
-              path="/events"
-              element={
-                <Placeholder title="Activity">
-                  <h2>Coming in the next step</h2>
-                  <p>Server actions and device events on one timeline.</p>
-                </Placeholder>
-              }
-            />
-            <Route
-              path="/camera"
-              element={
-                <Placeholder title="Camera">
-                  <h2>Reserved for the vision phase</h2>
-                  <p>
-                    The camera runs on a separate controller and is deliberately outside the
-                    control path. This space is held for it; nothing is wired up yet.
-                  </p>
-                </Placeholder>
-              }
-            />
+            <Route path="/events" element={<ActivityRoute />} />
+            <Route path="/camera" element={<CameraPage />} />
           </Routes>
         </main>
       </div>

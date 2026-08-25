@@ -1070,3 +1070,124 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ─── Activity feed ─────────────────────────────────────────────────────── */
+
+.feed {
+  border-top: 1px solid var(--line);
+}
+
+.fev {
+  display: grid;
+  grid-template-columns: 82px 1fr auto;
+  gap: 12px;
+  align-items: baseline;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.fev:last-child {
+  border-bottom: none;
+}
+
+.fev.warn {
+  background: #fffaf2;
+}
+
+.fsrc {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* Two streams, visually separable at a glance: the server acted, or the
+   controller reported. Confusing the two would misattribute cause. */
+.fsrc-server {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.fsrc-edge {
+  border-color: var(--q-ok);
+  color: var(--q-ok);
+}
+
+.ftext {
+  font-size: 13px;
+}
+
+.fnote {
+  font-size: 11px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+  line-height: 1.45;
+}
+
+.factor {
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 2px;
+}
+
+.ftime {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+/* ─── Camera placeholder ────────────────────────────────────────────────── */
+
+.camgrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 12px;
+  max-width: 900px;
+}
+
+.camslot {
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  background: var(--panel);
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camslot:not(.main) {
+  aspect-ratio: 16 / 9;
+}
+
+.camslot-in {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.camslot-in b {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.camslot-in span {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+@media (max-width: 800px) {
+  .camgrid {
+    grid-template-columns: 1fr;
+  }
+  .fev {
+    grid-template-columns: 72px 1fr;
+  }
+  .ftime {
+    grid-column: 2;
+  }
+}
