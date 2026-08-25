@@ -1,8 +1,8 @@
 // SDIGF mock edge node — Stage 1
 //
 // Publishes telemetry, health, and status on the frozen MQTT contract
-// (Contracts/mqtt_contract_v1.md). Stands in for the ESP32 so the server tier
-// can be built and demonstrated before firmware exists.
+// (Phase_04_Logging/4b_contracts/mqtt_contract_v4.md). Stands in for the ESP32
+// so the server tier can be built and demonstrated before firmware exists.
 //
 // Stage 1 scope: connect, last will, telemetry, health, static actuator state.
 // Not yet implemented: physics, control loop, config handling, safety
@@ -72,7 +72,18 @@ const healthPayload = () => ({
   fw: config.firmwareVersion,
   // No config received yet — version 0 means "running defaults". Stage 3
   // replaces this with the config actually applied.
-  cfg: { ver: 0, hash: null, src: 'none' },
+  //
+  // `verify` is required by contract v4 §3.4 and is DECLARED BY THE DEVICE,
+  // never supplied by the server — a server-settable flag could be switched off
+  // by exactly the adversary edge verification defends against. The mock has no
+  // signature verification and never will: it stands in for firmware, and
+  // claiming `enforced` here would put a false capability into the event log and
+  // onto the 05a dashboard. It reports `unsupported` for as long as it exists.
+  //
+  // The field must be PRESENT and false rather than omitted. An absent field
+  // reads as "unknown" downstream, which is a third state the contract does not
+  // define and the dashboard would have to invent handling for.
+  cfg: { ver: 0, hash: null, src: 'none', verify: 'unsupported' },
   mqtt_reconnects: reconnectCount,
   boot_reason: 'power_on',
 });
