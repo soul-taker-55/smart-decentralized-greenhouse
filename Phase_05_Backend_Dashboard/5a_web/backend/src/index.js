@@ -16,6 +16,7 @@
  * database before anyone can ask the API about it.
  */
 
+import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import { config } from './config.js';
 import { assertFrozenVector } from './canon.js';
@@ -119,6 +120,26 @@ async function start() {
   // ---- 4. HTTP -------------------------------------------------------------
   await app.register(import('@fastify/cors'), { origin: true });
   registerRoutes(app, { publisher, republishActiveConfig });
+
+  // Serve the built dashboard from the same origin as the API, so one container
+  // serves both and there is no CORS surface in production. Absent in
+  // development, where Vite serves the frontend and proxies /api here.
+  const publicDir = new URL('../public', import.meta.url).pathname;
+  if (existsSync(publicDir)) {
+    await app.register(import('@fastify/static'), { root: publicDir, prefix: '/' });
+    // The dashboard is a single-page app: any non-API path is a client route
+    // and must return index.html rather than a 404, or a refresh on /config
+    // would fail.
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'not_found', message: 'no such endpoint' });
+      }
+      return reply.sendFile('index.html');
+    });
+    app.log.info('serving dashboard from /public');
+  } else {
+    app.log.warn('no built dashboard found — run `npm run build` in ../frontend');
+  }
 
   // Sweep expired proposals every minute. Proposals carry a TTL; without this
   // they would sit in PROPOSED indefinitely.

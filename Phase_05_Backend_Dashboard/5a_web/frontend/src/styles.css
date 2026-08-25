@@ -1,0 +1,513 @@
+/*
+ * SDIGF dashboard — design tokens and base styles.
+ *
+ * ─── DIRECTION ─────────────────────────────────────────────────────────────
+ *
+ * The subject is a SEALED PLEXIGLASS ENCLOSURE full of instrumentation. Not a
+ * farm. The palette comes from that world: cool pale ground, as if looking
+ * through the acrylic in daylight, with horticultural grow-light MAGENTA as the
+ * accent — the actual colour a red+blue horticultural LED array emits, so the
+ * one saturated colour on the page is the one colour genuinely present inside
+ * the box.
+ *
+ * ─── THE THESIS OF THIS INTERFACE ──────────────────────────────────────────
+ *
+ * The edge tier is authoritative; this dashboard is a viewer. So the single job
+ * of the page is letting an operator judge WHETHER THE NUMBERS CAN BE TRUSTED.
+ * Quality state is therefore the loudest structural device on the page, not a
+ * tooltip: every reading sits on a quality rule whose PATTERN encodes state, so
+ * it survives greyscale printing and colour-blindness alike.
+ */
+
+:root {
+  /* Ground — plexiglass seen in daylight, slightly blue, never warm. */
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --panel-sunk: #f6f8fa;
+
+  --ink: #12181f;
+  --ink-soft: #5a6672;
+  --ink-faint: #8e99a4;
+
+  --line: #d8dee5;
+  --line-strong: #b8c2cc;
+
+  /* Grow-light magenta. Used with restraint: active state and focus only. */
+  --accent: #c6247e;
+  --accent-soft: #fce8f2;
+
+  /* Quality states. Paired with a pattern, never colour alone. */
+  --q-ok: #1f7a4d;
+  --q-stale: #b26a00;
+  --q-fail: #c0392b;
+  --q-init: #6b7785;
+  --q-none: #b8c2cc;
+
+  --display: 'Space Grotesk', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --r: 3px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--display);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every number on this page is monospaced with tabular figures. Readings update
+   on a timer, and proportional digits make values jump horizontally as they
+   change — which reads as instability in the data rather than in the font. */
+.num {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ─── App frame ─────────────────────────────────────────────────────────── */
+
+.app {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.body {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  min-height: 0;
+}
+
+.main {
+  padding: 22px 26px 60px;
+  overflow-y: auto;
+}
+
+/* ─── Sidebar ───────────────────────────────────────────────────────────── */
+
+.nav {
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 18px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav a {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  padding: 8px 18px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  font-size: 14px;
+  border-left: 2px solid transparent;
+}
+
+.nav a:hover {
+  background: var(--panel-sunk);
+  color: var(--ink);
+}
+
+.nav a.active {
+  color: var(--ink);
+  border-left-color: var(--accent);
+  font-weight: 500;
+}
+
+.nav-note {
+  margin-top: auto;
+  padding: 14px 18px 0;
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  border-top: 1px solid var(--line);
+}
+
+/* ─── Status strip ──────────────────────────────────────────────────────── */
+
+.strip {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.strip-id {
+  padding: 11px 20px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 210px;
+}
+
+.strip-id b {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.strip-id span {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.strip-cell {
+  padding: 11px 18px;
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  justify-content: center;
+  min-width: 118px;
+}
+
+.strip-cell .k {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.strip-cell .v {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* ─── The verify shield — deliberately three distinct states ────────────── */
+
+.verify {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.verify svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+/* ENFORCED: filled. The only state that earns a solid shield. */
+.verify.enforced {
+  color: var(--q-ok);
+}
+/* UNSUPPORTED: outline only. Correct and expected with the current mock —
+   never a green check, never a red alarm. A neutral fact about the device. */
+.verify.unsupported {
+  color: var(--ink-soft);
+}
+/* UNKNOWN: no device has ever reported. Honest, rather than reassuring. */
+.verify.unknown {
+  color: var(--ink-faint);
+}
+
+/* ─── Dot indicators ────────────────────────────────────────────────────── */
+
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+.dot.on {
+  background: var(--q-ok);
+}
+.dot.off {
+  background: var(--q-fail);
+}
+.dot.never {
+  background: transparent;
+  border: 1.5px dashed var(--q-none);
+}
+
+/* ─── Section headings ──────────────────────────────────────────────────── */
+
+.h {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+
+.h h1 {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.h .sub {
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+/* ─── Sensor grid ───────────────────────────────────────────────────────── */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
+  gap: 12px;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Cards in a row stretch to the tallest. Pushing the readings block to the
+   bottom keeps every value on one horizontal scan line, so a caveat note on one
+   panel does not knock its neighbours out of alignment. */
+.card .readings {
+  margin-top: auto;
+}
+
+.card-head {
+  padding: 10px 14px 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.card-head .label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.card-head .unit {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+}
+
+.card-note {
+  padding: 0 14px 8px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  line-height: 1.4;
+}
+
+/* A caveat that changes how a number should be read is not a footnote. */
+.card-note.loud {
+  color: var(--q-stale);
+  font-weight: 500;
+}
+
+.readings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.readings.single {
+  grid-template-columns: 1fr;
+}
+
+.reading {
+  padding: 8px 14px 12px;
+  border-top: 1px solid var(--line);
+}
+
+.reading + .reading {
+  border-left: 1px solid var(--line);
+}
+
+.reading .place {
+  font-size: 10px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  margin-bottom: 3px;
+}
+
+.reading .val {
+  font-size: 25px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+
+.reading .val.none {
+  color: var(--ink-faint);
+}
+
+/* ─── SIGNATURE: the quality rule ───────────────────────────────────────────
+   Under every reading. Pattern carries the meaning; colour reinforces it. */
+
+.qrule {
+  height: 3px;
+  margin-top: 7px;
+  border-radius: 2px;
+}
+.qrule.ok {
+  background: var(--q-ok);
+}
+.qrule.stale {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--q-stale) 0 5px,
+    transparent 5px 9px
+  );
+}
+.qrule.fail {
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--q-fail) 0 3px,
+    transparent 3px 6px
+  );
+}
+.qrule.init {
+  background: repeating-linear-gradient(90deg, var(--q-init) 0 2px, transparent 2px 6px);
+}
+.qrule.no_data {
+  background: repeating-linear-gradient(90deg, var(--q-none) 0 2px, transparent 2px 8px);
+}
+
+.qmeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 10px;
+  font-family: var(--mono);
+}
+
+.qflag {
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+.qflag.ok {
+  color: var(--q-ok);
+}
+.qflag.stale {
+  color: var(--q-stale);
+}
+.qflag.fail {
+  color: var(--q-fail);
+}
+.qflag.init {
+  color: var(--q-init);
+}
+.qflag.no_data {
+  color: var(--q-none);
+}
+
+.qage {
+  color: var(--ink-faint);
+}
+
+/* ─── Empty states — designed, not an afterthought ──────────────────────── */
+
+.emptystate {
+  background: var(--panel);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r);
+  padding: 30px 26px;
+  max-width: 620px;
+}
+
+.emptystate h2 {
+  font-size: 15px;
+  font-weight: 500;
+  margin: 0 0 7px;
+}
+
+.emptystate p {
+  margin: 0 0 5px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.55;
+}
+
+.emptystate ol {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  line-height: 1.7;
+}
+
+.emptystate code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: var(--panel-sunk);
+  border: 1px solid var(--line);
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.banner {
+  background: var(--accent-soft);
+  border: 1px solid #f2c6dd;
+  border-radius: var(--r);
+  padding: 11px 14px;
+  font-size: 12.5px;
+  color: #7d1450;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .body {
+    grid-template-columns: 1fr;
+  }
+  .nav {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+    padding: 0;
+  }
+  .nav a {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .nav a.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+  .nav-note {
+    display: none;
+  }
+  .main {
+    padding: 16px 14px 50px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
