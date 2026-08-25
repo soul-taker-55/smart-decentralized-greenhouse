@@ -511,3 +511,279 @@ body {
     transition: none !important;
   }
 }
+
+/* ─── Actuators ─────────────────────────────────────────────────────────── */
+
+.grid-2 {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.arows {
+  border-top: 1px solid var(--line);
+}
+
+.arow {
+  display: grid;
+  grid-template-columns: 1fr 52px auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.arow:last-child {
+  border-bottom: none;
+}
+
+/* An overridden actuator is not under autonomous control. That distinction is
+   the whole point of showing src, so it gets a structural marker rather than
+   only a badge tucked at the end of the row. */
+.arow.overridden {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.arow-name {
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lamp {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+.lamp.on {
+  background: var(--q-ok);
+}
+.lamp.off {
+  background: var(--line-strong);
+}
+.lamp.unknown {
+  background: transparent;
+  border: 1.5px dashed var(--q-none);
+}
+
+.arow-state {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--ink-soft);
+}
+
+.arow-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.src {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.src-manual {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+/* The firmware envelope refused what it was told. Loudest of the three. */
+.src-safety {
+  border-color: var(--q-fail);
+  color: var(--q-fail);
+  font-weight: 600;
+}
+
+.dur {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.ovr {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+/* ─── Ventilation ───────────────────────────────────────────────────────── */
+
+.vent-body {
+  padding: 4px 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.vent-val {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.vent-steps {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.vent-step {
+  height: 8px;
+  flex: 1;
+  background: var(--panel-sunk);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.vent-step.lit {
+  background: var(--q-ok);
+  border-color: var(--q-ok);
+}
+
+/* ─── Canopy ────────────────────────────────────────────────────────────── */
+
+.canopy-body {
+  padding: 4px 14px 8px;
+  margin-top: auto;
+}
+
+.canopy-val {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  margin-bottom: 9px;
+}
+
+.canopy-track {
+  height: 9px;
+  background: var(--panel-sunk);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.canopy-fill {
+  height: 100%;
+  background: var(--accent);
+}
+
+.canopy-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 4px;
+}
+
+.canopy-foot {
+  padding: 0 14px 12px;
+}
+
+/* ─── Command form ──────────────────────────────────────────────────────── */
+
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 11px;
+  padding: 4px 14px 12px;
+}
+
+.cmd-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cmd-grid span {
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.cmd-grid select,
+.cmd-grid input {
+  font-family: var(--display);
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.cmd-grid input {
+  font-family: var(--mono);
+}
+
+.cmd-foot {
+  padding: 0 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--display);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 15px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--r);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: #a91d6a;
+  border-color: #a91d6a;
+}
+
+.btn:disabled {
+  background: var(--line-strong);
+  border-color: var(--line-strong);
+  cursor: not-allowed;
+}
+
+.cmd-cap {
+  font-size: 11px;
+  color: var(--ink-faint);
+}
+
+.cmd-result {
+  margin: 0 14px 14px;
+  padding: 9px 11px;
+  border-radius: var(--r);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.cmd-result.ok {
+  background: #eaf5ef;
+  border: 1px solid #bfdfcd;
+  color: #145133;
+}
+.cmd-result.bad {
+  background: #fdeceb;
+  border: 1px solid #f3c4c0;
+  color: #8a271d;
+}
+
+@media (max-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
