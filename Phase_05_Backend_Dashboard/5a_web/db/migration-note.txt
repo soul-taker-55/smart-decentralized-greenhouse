@@ -1,2 +1,8 @@
 This is practically Migration 004 on the db
 but it is stated as first, because it is in a separated phase and belongs to phase 5
+
+#####################
+Counting from 004
+
+001 --> migration 005
+002 --> migration 006
