@@ -1,17 +1,16 @@
--- SDIGF Phase 05a — db/001_config_profiles.sql
+-- SDIGF migration 004 — 05a tables: config_profiles, server_events, commands
 --
--- Runs against a DEDICATED database for the 05a backend (e.g. sdigf_backend_db),
--- NOT against Phase 04's sdigf_db. This keeps 05a fully isolated from the
--- logging tier: no shared tables, no shared migration history, no risk of a
--- 05a change touching telemetry, actuator_state, or edge_events.
+-- These three tables do not exist on the live database (confirmed 2026-08-25 via
+-- direct query — 0 rows returned for all three names, and \dt lists 11 tables with
+-- none of these present). An earlier session record called this "migration 003" —
+-- that was wrong. 003 is 003_cfg_src_none.sql and only widens a CHECK constraint.
 --
--- Because this is a fresh database, it has no pre-contract draft tables
--- (users, ledger, config_proposals, etc.) to comment on — those live only in
--- sdigf_db and are Phase 04's concern, not this database's.
+-- Written from MQTT contract v4 (Phase_04_Logging/4b_contracts/mqtt_contract_v4.md),
+-- not from the pre-contract draft in db/old/sdigf-db-schema.sql, which defines tables
+-- of the same family under a different, superseded shape.
 --
--- Written from MQTT contract v4 (Phase_04_Logging/4b_contracts/mqtt_contract_v4.md).
--- Tested against a fresh empty Postgres 16 database, 2026-08-25: applies clean,
--- and the one-ACTIVE-per-greenhouse constraint verified to reject correctly.
+-- Safe to run against the live database: this only adds new tables and comments on
+-- existing ones. It does not touch telemetry, actuator_state, or edge_events.
 
 BEGIN;
 
@@ -135,6 +134,27 @@ CREATE INDEX idx_commands_target ON commands (gh_id, target, issued_at DESC);
 
 COMMENT ON TABLE commands IS
   'Manual per-actuator overrides matching down/cmd (contract v4 §3.7). ttl_s is mandatory — no unbounded overrides. Ack fields populated once an edge or Stage 2 mock can publish up/ack.';
+
+-- ============================================================================
+-- 4. DEPRECATION MARKERS — pre-contract draft tables, wrong spec
+-- ============================================================================
+--
+-- These six tables are live on this database but were built from a schema draft
+-- that predates the frozen contract. Do not build on them, do not drop them without
+-- checking for data first (row counts not yet verified as of this migration).
+
+COMMENT ON TABLE users IS
+  'DEPRECATED — pre-contract draft schema, wrong spec. 05b will define the real users/keys table. Do not build on this.';
+COMMENT ON TABLE ledger IS
+  'DEPRECATED — pre-contract draft schema, wrong spec. Phase 07 will define the real hash-chained ledger. Do not build on this.';
+COMMENT ON TABLE config_proposals IS
+  'DEPRECATED — pre-contract draft schema, superseded by config_profiles (migration 004). Do not build on this.';
+COMMENT ON TABLE config_approvals IS
+  'DEPRECATED — pre-contract draft schema. M-of-N approval will be modeled in 05b against config_profiles. Do not build on this.';
+COMMENT ON TABLE config_history IS
+  'DEPRECATED — pre-contract draft schema, superseded by config_profiles status lifecycle + server_events. Do not build on this.';
+COMMENT ON TABLE mqtt_retained_messages IS
+  'DEPRECATED — pre-contract draft schema. Retained messages are broker state and are never treated as source of truth (see server_tier_journal.md §5); the backend reconstructs from config_profiles instead. Do not build on this.';
 
 COMMIT;
 
