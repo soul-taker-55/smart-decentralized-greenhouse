@@ -12,6 +12,7 @@
     "start": "node src/index.js"
   },
   "dependencies": {
+    "mqtt": "^5.15.2",
     "pg": "^8.23.0"
   }
 }
