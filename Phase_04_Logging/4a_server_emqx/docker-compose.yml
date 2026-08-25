@@ -1,6 +1,12 @@
 services:
   sdigf-db:
-    image: timescale/timescaledb:latest-pg16
+    # Pinned. `latest-pg16` would silently move to a new TimescaleDB minor
+    # version on any redeploy, mid-thesis, with no record of when or why.
+    # 2.29.2 is the version this volume was written by — confirmed 2026-08-25
+    # via SELECT extversion FROM pg_extension. Never pin below it: Postgres
+    # refuses to start when the installed extension is older than the one that
+    # wrote the data directory.
+    image: timescale/timescaledb:2.29.2-pg16
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
@@ -8,12 +14,18 @@ services:
       POSTGRES_DB: sdigf_db
     volumes:
       - sdigf_db_data:/var/lib/postgresql/data
+      # Postgres runs these only on an EMPTY data volume. The `old/`
+      # subdirectory is ignored — the entrypoint globs files, not directories.
       - ../db:/docker-entrypoint-initdb.d:ro
     networks:
       - dokploy-network
 
   sdigf-emqx:
-    image: emqx/emqx:latest
+    # Pinned to the version actually running — confirmed 2026-08-25 via
+    # `emqx ctl broker`. Note this resolves to EMQX Enterprise, not the
+    # open-source edition — different licence terms. Recorded here so the
+    # thesis states the edition accurately.
+    image: emqx/emqx:6.2.3
     restart: unless-stopped
     ports:
       - "1883:1883"
@@ -21,6 +33,23 @@ services:
     environment:
       EMQX_NAME: emqx
       EMQX_HOST: 127.0.0.1
+
+      # ---------------------------------------------------------------------
+      # Retained-message durability
+      # ---------------------------------------------------------------------
+      # EMQX defaults the retainer to `ram`: retained messages are held in
+      # memory only and are destroyed when the broker restarts.
+      #
+      # That default is incompatible with this project's design. `down/config`
+      # is retained precisely so a reconnecting ESP32 receives the current
+      # configuration without the server having to detect the reconnection.
+      # With `ram`, a broker restart silently empties that store, and a device
+      # rebooting afterwards receives nothing and continues on its NVS
+      # last-known-good — correct behaviour, but invisible to an operator who
+      # has just approved a change and been told it was applied.
+      #
+      # Verified 2026-08-25: the default was `ram` on this deployment.
+      EMQX_RETAINER__BACKEND__STORAGE_TYPE: disc
     volumes:
       - sdigf_emqx_data:/opt/emqx/data
     networks:
