@@ -787,3 +787,286 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ─── Configuration ─────────────────────────────────────────────────────── */
+
+.cfg-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 12px;
+  align-items: start;
+}
+
+.cfgblock {
+  margin-bottom: 12px;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  padding: 4px 14px 14px;
+}
+
+.field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.field label {
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.field-unit {
+  font-size: 10px;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.field select {
+  font-family: var(--display);
+}
+
+.field.has-error input,
+.field.has-error select {
+  border-color: var(--q-fail);
+}
+
+.field-help {
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  line-height: 1.45;
+  margin-top: 4px;
+}
+
+/* A value nobody has supplied yet is a real state, and must not look like
+   zero. Amber matches the STALE flag: present, but not usable as-is. */
+.field-unset {
+  font-size: 10px;
+  color: var(--q-stale);
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.field-error {
+  font-size: 10.5px;
+  color: var(--q-fail);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+.triple {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+/* ─── Version list ──────────────────────────────────────────────────────── */
+
+.plist {
+  border-top: 1px solid var(--line);
+}
+
+.prow {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.prow:hover {
+  background: var(--panel-sunk);
+}
+
+.prow.sel {
+  background: var(--panel-sunk);
+  cursor: default;
+}
+
+.prow.active {
+  box-shadow: inset 2px 0 0 var(--q-ok);
+}
+
+.prow-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.prow-name {
+  font-size: 11.5px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+.prow-warn {
+  font-size: 10.5px;
+  color: var(--q-stale);
+  margin-top: 3px;
+}
+
+.pstatus {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.pstatus.s-ACTIVE {
+  border-color: var(--q-ok);
+  color: var(--q-ok);
+  font-weight: 600;
+}
+.pstatus.s-APPROVED {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.pstatus.s-REJECTED,
+.pstatus.s-EXPIRED {
+  border-color: var(--q-fail);
+  color: var(--q-fail);
+}
+
+.prow-detail {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.prow-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.btn.sm {
+  font-size: 12px;
+  padding: 5px 11px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--ink-soft);
+  border-color: var(--line-strong);
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--panel-sunk);
+  color: var(--ink);
+  border-color: var(--ink-faint);
+}
+
+/* The placeholder approval must never read as a real one. */
+.stubnote {
+  margin-top: 9px;
+  padding: 7px 9px;
+  background: #fff8e6;
+  border: 1px solid #eddda8;
+  border-radius: var(--r);
+  font-size: 10.5px;
+  color: #7a5a12;
+  line-height: 1.5;
+}
+
+/* ─── Lifecycle stepper ─────────────────────────────────────────────────── */
+
+.lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.lstep {
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+
+.lstep.done {
+  color: var(--ink-soft);
+  border-color: var(--line-strong);
+}
+
+.lstep.now {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.lstep.terminal.now {
+  background: var(--q-fail);
+  border-color: var(--q-fail);
+}
+
+/* ─── Diff table ────────────────────────────────────────────────────────── */
+
+.diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.diff th {
+  text-align: left;
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  padding: 3px 5px;
+  border-bottom: 1px solid var(--line);
+}
+
+.diff td {
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.diff .was {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.diff .now {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin: 0;
+}
+
+@media (max-width: 1000px) {
+  .cfg-cols {
+    grid-template-columns: 1fr;
+  }
+}

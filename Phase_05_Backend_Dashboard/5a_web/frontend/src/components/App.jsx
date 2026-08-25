@@ -4,6 +4,7 @@ import { api } from './api.js';
 import StatusStrip from './components/StatusStrip.jsx';
 import SensorPanel from './components/SensorPanel.jsx';
 import ActuatorPanel from './components/ActuatorPanel.jsx';
+import ConfigPage from './components/ConfigPage.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -210,15 +211,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LivePage status={status} />} />
             <Route path="/actuators" element={<ActuatorsPage status={status} />} />
-            <Route
-              path="/config"
-              element={
-                <Placeholder title="Configuration">
-                  <h2>Coming in the next step</h2>
-                  <p>Editing, proposals, differences against the active profile, and approval.</p>
-                </Placeholder>
-              }
-            />
+            <Route path="/config" element={<ConfigPage />} />
             <Route
               path="/events"
               element={
