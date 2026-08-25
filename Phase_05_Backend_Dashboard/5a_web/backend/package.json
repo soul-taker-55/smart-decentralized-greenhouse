@@ -1,0 +1,12 @@
+{
+  "name": "sdigf-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SDIGF Phase 05a — REST backend and dashboard server",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "start": "node src/index.js"
+  }
+}
