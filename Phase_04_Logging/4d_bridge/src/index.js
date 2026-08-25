@@ -84,8 +84,13 @@ const start = () => {
     connectTimeout: 30_000,
   });
 
-  client.on('connect', () => {
-    log.info('mqtt', `connected to ${config.mqtt.host}:${config.mqtt.port} as ${config.mqtt.clientId}`);
+  client.on('connect', (connack) => {
+    const sessionPresent = Boolean(connack && connack.sessionPresent);
+    log.info(
+      'mqtt',
+      `connected to ${config.mqtt.host}:${config.mqtt.port} as ${config.mqtt.clientId}`,
+      { sessionPresent }
+    );
 
     client.subscribe(
       subscriptions.map((s) => s.topic),
@@ -95,9 +100,25 @@ const start = () => {
           log.error('mqtt', 'subscribe failed', { message: err.message });
           return;
         }
-        // Granted QoS below what was requested means the broker ACL is
-        // narrower than expected. Worth surfacing: it would otherwise present
-        // later as messages that silently never arrive.
+
+        // mqtt.js short-circuits subscribe() when every topic is already in its
+        // internal resubscribe table, invoking this callback with an empty
+        // `granted` array and sending no SUBSCRIBE packet. That happens on every
+        // reconnect. The subscription is still live — either the broker session
+        // survived, or mqtt.js already resubscribed internally on its own — but
+        // without this branch the log simply goes quiet, which reads exactly like
+        // a failure and cost real time to diagnose once already.
+        if (!granted || granted.length === 0) {
+          log.info('mqtt', 'subscriptions already active, no SUBSCRIBE re-sent', {
+            sessionPresent,
+            topics: subscriptions.length,
+          });
+          return;
+        }
+
+        // Granted QoS below what was requested means the broker ACL is narrower
+        // than expected. Worth surfacing: it would otherwise present later as
+        // messages that silently never arrive.
         granted.forEach((g) => log.info('mqtt', `subscribed ${g.topic} qos=${g.qos}`));
       }
     );
