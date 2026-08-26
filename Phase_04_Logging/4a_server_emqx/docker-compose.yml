@@ -52,6 +52,7 @@ services:
       EMQX_RETAINER__BACKEND__STORAGE_TYPE: disc
     volumes:
       - sdigf_emqx_data:/opt/emqx/data
+      - ./acl.conf.txt:/opt/emqx/etc/acl.conf
     networks:
       - dokploy-network
 
