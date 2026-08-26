@@ -126,7 +126,7 @@ prefer server time when `tsq` is `boot`. Without this, 1970-dated rows land in t
 
 **MQTT buffer size.** Arduino `PubSubClient` defaults to a **256-byte** buffer and fails
 *silently* when exceeded — the publish simply does not happen. Telemetry is ~480 bytes.
-**Phase 03 firmware must call `setBufferSize(1024)`.** Required, not advice.
+**Phase 03 firmware must call `setBufferSize(2048)`.** Required, not advice. (See §3.6 — measured `down/config` payloads reach 1,556 B at four signatures. This line previously said 1024, which contradicted §3.6 and was too small.)
 
 ### Bridge obligations
 
@@ -826,7 +826,7 @@ non-negotiable. If they were configurable they would not be a second gate.
 
 | Component | Role |
 |---|---|
-| Browser (WebCrypto) | canonicalizes the signed object, hashes it, signs the hash |
+| Browser (WebCrypto) | canonicalizes the signed object and signs **those bytes** — WebCrypto hashes internally, so the signature covers `cfg_hash`. It has no prehashed mode; signing `cfg_hash` directly double-hashes. |
 | Server (Node.js) | recomputes independently, verifies signatures, stores hash and canonical string |
 | Ledger | records the hash and signatures |
 | **ESP32** | **hashes the received `cfg_canonical` bytes and verifies signatures over that hash** |
@@ -1068,7 +1068,8 @@ message signed — the cfg_hash, 32 raw bytes
 >
 > | Environment | Correct call |
 > |---|---|
-> | Node / WebCrypto | verify over the 32-byte digest as the data, with the digest already computed |
+> | WebCrypto (browser) | **No prehashed mode exists.** Sign and verify over the `cfg_canonical` BYTES; WebCrypto's internal SHA-256 makes the signature cover `cfg_hash`. Passing `cfg_hash` as the data hashes it again and fails on the ESP32 while the browser's own check passes. |
+> | Node.js (server) | Verify over `cfg_canonical` with digest `'sha256'`. Do **not** use `crypto.verify(null, …)` as a prehashed call — Node's null-digest path on EC keys is not prehashed and silently applies SHA-256 anyway. |
 > | Python `cryptography` | `ECDSA(Prehashed(SHA256()))` |
 > | mbedTLS | `mbedtls_ecdsa_read_signature` takes the hash directly — this is its default behaviour |
 >
@@ -1144,6 +1145,7 @@ bytes. That is expected. Verification against the fixed public key is what must 
 | 2026-08-25 | §5: canonicalization scope widened from `cfg` to the signed object; the rules themselves unchanged |
 | 2026-08-25 | §5: trust-model section rewritten. Residual gaps stated explicitly — deferred key distribution, firmware that may not ship, and administrator-deletable ledger history |
 | 2026-08-25 | §3.8: `down/keys` reserved — signed key list under a device-held root key, with the bootstrap case noted. Deliberately not fully specified |
+| 2026-08-26 | §5: the normative verification table contradicted the warning directly above it. "Node / WebCrypto — verify over the 32-byte digest as the data" instructs exactly the double-hash the warning forbids: WebCrypto has no prehashed mode. Split into separate WebCrypto and Node.js rows, both stating that signing and verification happen over `cfg_canonical` bytes. The §5 flow table ("signs the hash") carried the same defect and is corrected. Verified against a faithful mbedTLS model: following the old wording, the browser self-check passes and the ESP32 rejects. Also §2: `setBufferSize(1024)` corrected to 2048, which had contradicted §3.6 since the payload sizing was measured |
 | 2026-08-25 | §5: test vector 2 — full DER hex added, and prehashed verification stated explicitly. The elided form was copyable-but-wrong, and the doc never said the signature is over the digest directly rather than over a re-hash of it |
 | 2026-08-25 | §3.3: `cfg.src` gains `none` — the never-configured first-boot state, previously logged as NULL and indistinguishable from a malformed field |
 | 2026-08-25 | §1: **correction** — the claim that retention was verified across a broker restart was false. Tested 2026-08-25 and it failed; EMQX defaulted the retainer to `ram`. Fixed to `disc` and re-verified |
