@@ -26,22 +26,17 @@
 import * as configService from './services/config-service.js';
 import * as commandService from './services/command-service.js';
 import * as telemetry from './services/telemetry-service.js';
+import * as identity from './services/identity-service.js';
 import { config } from './config.js';
 import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
-
-/**
- * Resolve the acting user.
- *
- * 05a: always null — no authentication in this phase, by design ("build the
- * seams, not the locks"). 05b replaces the body and every call site already
- * passes the result through to the database.
- */
-function getActor(_request) {
-  return null;
-}
+import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
 
 /** Map service errors onto HTTP status codes. */
 function errorResponse(reply, err) {
+  if (err.name === 'AuthError') {
+    const status = { bad_invite: 409, invalid_credentials: 401, weak_password: 400, bad_role: 400, bad_request: 400 };
+    return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
+  }
   if (err.name === 'ValidationError') {
     return reply.code(400).send({ error: 'validation_failed', message: err.message, fields: err.errors });
   }
@@ -90,7 +85,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * The backend must not couple to it; the bridge stays a separate read-only
    * service, and inference preserves that separation.
    */
-  app.get('/api/status', async (_request, reply) => {
+  app.get('/api/status', { preHandler: requireCap(CAP.VIEW) }, async (_request, reply) => {
     try {
       const [presence, edgeConfig, activeProfile] = await Promise.all([
         telemetry.getEdgePresence().catch(() => null),
@@ -158,7 +153,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   // Live state and history
   // -------------------------------------------------------------------------
 
-  app.get('/api/state/live', async (_request, reply) => {
+  app.get('/api/state/live', { preHandler: requireCap(CAP.VIEW) }, async (_request, reply) => {
     try {
       const [state, actuators] = await Promise.all([
         telemetry.getLiveState(),
@@ -175,7 +170,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/state/history/:sensor', async (request, reply) => {
+  app.get('/api/state/history/:sensor', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       const hours = Number(request.query.hours ?? 24);
       if (!Number.isFinite(hours) || hours <= 0 || hours > 8760) {
@@ -190,7 +185,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/sensors', async () => ({
+  app.get('/api/sensors', { preHandler: requireCap(CAP.VIEW) }, async () => ({
     groups: telemetry.SENSOR_GROUPS,
     keys: telemetry.SENSOR_KEYS,
   }));
@@ -200,13 +195,13 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   // -------------------------------------------------------------------------
 
   /** The field spec, so the editor renders from one source rather than a copy. */
-  app.get('/api/config/schema', async () => ({
+  app.get('/api/config/schema', { preHandler: requireCap(CAP.VIEW) }, async () => ({
     spec: CONFIG_SPEC,
     template: emptyConfig(),
     lifecycle: configService.TRANSITIONS,
   }));
 
-  app.get('/api/config/active', async (_request, reply) => {
+  app.get('/api/config/active', { preHandler: requireCap(CAP.VIEW) }, async (_request, reply) => {
     try {
       const active = await configService.getActiveProfile();
       // null is the normal first-boot state, not an error. 200 with an explicit
@@ -217,7 +212,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/config/profiles', async (request, reply) => {
+  app.get('/api/config/profiles', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       return {
         profiles: await configService.listProfiles({
@@ -230,7 +225,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/config/profiles/:id', async (request, reply) => {
+  app.get('/api/config/profiles/:id', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       return { profile: await configService.getProfile(Number(request.params.id)) };
     } catch (err) {
@@ -238,7 +233,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/config/profiles/:id/diff', async (request, reply) => {
+  app.get('/api/config/profiles/:id/diff', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       return await configService.diffAgainstActive(Number(request.params.id));
     } catch (err) {
@@ -250,7 +245,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * Create a profile. Validates server-side, computes cfg_canonical and
    * cfg_hash, assigns the next version.
    */
-  app.post('/api/config/profiles', async (request, reply) => {
+  app.post('/api/config/profiles', { preHandler: requireCap(CAP.CONFIG_PROPOSE) }, async (request, reply) => {
     try {
       const { cfg, name, parentId } = request.body ?? {};
       const profile = await configService.createProfile(cfg, {
@@ -264,7 +259,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.post('/api/config/profiles/:id/propose', async (request, reply) => {
+  app.post('/api/config/profiles/:id/propose', { preHandler: requireCap(CAP.CONFIG_PROPOSE) }, async (request, reply) => {
     try {
       return {
         profile: await configService.proposeProfile(Number(request.params.id), {
@@ -281,7 +276,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * ██ STUB — 05a ██ No signature verification, no M-of-N threshold.
    * The response says so, so a UI cannot present this as a real approval.
    */
-  app.post('/api/config/profiles/:id/approve', async (request, reply) => {
+  app.post('/api/config/profiles/:id/approve', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
     try {
       const profile = await configService.approveProfile(Number(request.params.id), {
         actor: getActor(request),
@@ -296,7 +291,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.post('/api/config/profiles/:id/reject', async (request, reply) => {
+  app.post('/api/config/profiles/:id/reject', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
     try {
       return {
         profile: await configService.rejectProfile(Number(request.params.id), {
@@ -317,7 +312,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * from its own database on every reconnect, a failed publish is recoverable
    * rather than a lost config.
    */
-  app.post('/api/config/profiles/:id/activate', async (request, reply) => {
+  app.post('/api/config/profiles/:id/activate', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
     try {
       const { activated, superseded } = await configService.activateProfile(
         Number(request.params.id),
@@ -347,7 +342,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   });
 
   /** Force a republish from the database. The retained message is a cache. */
-  app.post('/api/config/republish', async (_request, reply) => {
+  app.post('/api/config/republish', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (_request, reply) => {
     try {
       const result = await republishActiveConfig();
       return result;
@@ -360,7 +355,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   // Manual commands
   // -------------------------------------------------------------------------
 
-  app.get('/api/commands', async (request, reply) => {
+  app.get('/api/commands', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       return { commands: await commandService.listCommands({ limit: Number(request.query.limit ?? 50) }) };
     } catch (err) {
@@ -368,7 +363,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
     }
   });
 
-  app.get('/api/commands/targets', async () => ({
+  app.get('/api/commands/targets', { preHandler: requireCap(CAP.VIEW) }, async () => ({
     targets: commandService.ALL_TARGETS,
     relays: commandService.RELAY_TARGETS,
     actions: commandService.ACTIONS,
@@ -383,7 +378,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * 05b gates this to ENGINEER and FARMER — never ADMIN, who is deliberately
    * excluded from agronomic authority.
    */
-  app.post('/api/commands', async (request, reply) => {
+  app.post('/api/commands', { preHandler: requireCap(CAP.COMMAND) }, async (request, reply) => {
     try {
       const { target, action, value, ttl_s } = request.body ?? {};
       const result = await commandService.issueCommand(
@@ -406,7 +401,7 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * Two sources, deliberately merged here rather than in the browser — 05c's
    * chat needs the same chronology and should not reimplement the interleave.
    */
-  app.get('/api/events', async (request, reply) => {
+  app.get('/api/events', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
     try {
       const limit = Number(request.query.limit ?? 100);
       const [serverEvents, edgeEvents] = await Promise.all([
@@ -424,4 +419,96 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
       return errorResponse(reply, err);
     }
   });
+
+  // ---------------------------------------------------------------------------
+  // Auth
+  // ---------------------------------------------------------------------------
+  //
+  // No self-registration anywhere in this group. Accounts originate from an
+  // admin invite (see the user-management block below) or from the bootstrap
+  // administrator created once at startup. There is no POST /api/auth/register.
+
+  app.post('/api/auth/login', async (request, reply) => {
+    try {
+      const { identifier, password, remember } = request.body ?? {};
+      const { user, token, expiresInHours } = await identity.login({
+        identifier,
+        password,
+        remember: Boolean(remember),
+        userAgent: request.headers['user-agent'],
+        ip: request.ip,
+      });
+      const cookie = sessionCookie(token, expiresInHours);
+      reply.setCookie(cookie.name, cookie.value, cookie.options);
+      return { user };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.post('/api/auth/logout', async (request, reply) => {
+    const token = request.cookies?.[SESSION_COOKIE_NAME];
+    await identity.logout(token);
+    reply.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+    return { ok: true };
+  });
+
+  /** Who the current session belongs to, or null. Drives the sidebar's role scoping. */
+  app.get('/api/auth/me', async (request) => ({ user: request.user ?? null }));
+
+  /** Public: shows who an invite is for before a password is chosen. No auth — the link itself is the credential. */
+  app.get('/api/auth/invite/:token', async (request, reply) => {
+    const peek = await identity.peekInvite(request.params.token);
+    if (!peek) {
+      return reply.code(404).send({ error: 'bad_invite', message: 'This invite is invalid, expired, or already used.' });
+    }
+    return { invite: peek };
+  });
+
+  app.post('/api/auth/invite/:token/redeem', async (request, reply) => {
+    try {
+      const user = await identity.redeemInvite({
+        token: request.params.token,
+        password: request.body?.password,
+      });
+      return { user };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // User management — ADMIN ONLY
+  // ---------------------------------------------------------------------------
+  //
+  // This is the one place in the API gated by CAP.ADMIN rather than CAP.VIEW or
+  // an operational capability, matching the settled matrix: admin manages
+  // users, API configuration and server status, and nothing agronomic.
+
+  app.get('/api/users', { preHandler: requireCap(CAP.ADMIN) }, async () => ({
+    users: await identity.listUsers(),
+  }));
+
+  /**
+   * Create an invited account.
+   *
+   * Returns the plaintext token ONCE, for the admin to deliver out of band.
+   * Only its hash is ever stored — this response is the sole moment it exists
+   * outside the invitee's own link.
+   */
+  app.post('/api/users/invite', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      const { email, username, role } = request.body ?? {};
+      const { user, token, expiresAt } = await identity.inviteUser({
+        email,
+        username,
+        role,
+        actor: getActor(request),
+      });
+      return reply.code(201).send({ user, inviteToken: token, expiresAt });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
 }
+

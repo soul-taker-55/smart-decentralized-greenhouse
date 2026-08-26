@@ -23,6 +23,8 @@ import { assertFrozenVector } from './canon.js';
 import { checkConnections, closePools } from './db.js';
 import { MqttPublisher } from './mqtt.js';
 import { registerRoutes } from './routes.js';
+import { attachUser } from './auth.js';
+import { bootstrapAdmin } from './services/identity-service.js';
 import * as configService from './services/config-service.js';
 import * as commandService from './services/command-service.js';
 
@@ -118,7 +120,25 @@ async function start() {
   }
 
   // ---- 4. HTTP -------------------------------------------------------------
-  await app.register(import('@fastify/cors'), { origin: true });
+  await app.register(import('@fastify/cors'), { origin: true, credentials: true });
+  await app.register(import('@fastify/cookie'));
+
+  // Resolves request.user from the session cookie on every request, before any
+  // route's preHandler runs. requireCap() reads request.user; without this hook
+  // it would always see null and every gated route would 401.
+  attachUser(app);
+
+  // Creates the first administrator if and only if the users table is empty.
+  // Fatal on failure — see bootstrapAdmin's own documentation for why there is
+  // no fallback credential and no HTTP path for this instead.
+  try {
+    const boot = await bootstrapAdmin(app.log);
+    if (!boot.created) app.log.info('users already exist — bootstrap skipped');
+  } catch (err) {
+    app.log.fatal(`bootstrap failed: ${err.message}`);
+    process.exit(1);
+  }
+
   registerRoutes(app, { publisher, republishActiveConfig });
 
   // Serve the built dashboard from the same origin as the API, so one container
