@@ -27,12 +27,18 @@ import * as configService from './services/config-service.js';
 import * as commandService from './services/command-service.js';
 import * as telemetry from './services/telemetry-service.js';
 import * as identity from './services/identity-service.js';
+import * as keyService from './services/key-service.js';
+import * as approval from './services/approval-service.js';
 import { config } from './config.js';
 import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
 import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
 
 /** Map service errors onto HTTP status codes. */
 function errorResponse(reply, err) {
+  if (err.name === 'KeyError' || err.name === 'ApprovalError') {
+    const status = { not_found: 404, already_voted: 409, self_approval: 403, bad_state: 409, no_key: 400, wrong_role: 403, key_in_use: 409 };
+    return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
+  }
   if (err.name === 'AuthError') {
     const status = { bad_invite: 409, invalid_credentials: 401, weak_password: 400, bad_role: 400, bad_request: 400 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
@@ -273,32 +279,49 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   });
 
   /**
-   * ██ STUB — 05a ██ No signature verification, no M-of-N threshold.
-   * The response says so, so a UI cannot present this as a real approval.
+   * Approve a proposed config with a signature.
+   *
+   * Replaces the 05a placeholder. The route, the lifecycle and the event schema
+   * are unchanged — only the decision is real now. The browser signs the
+   * cfg_canonical BYTES; see key-service.js for why not cfg_hash.
    */
   app.post('/api/config/profiles/:id/approve', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
     try {
-      const profile = await configService.approveProfile(Number(request.params.id), {
+      const result = await approval.castVote({
+        profileId: Number(request.params.id),
+        decision: 'approve',
+        signatureHex: request.body?.signature,
         actor: getActor(request),
       });
+      return { ...result, profile: await configService.getProfile(Number(request.params.id)) };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /** What a proposal still needs: threshold, tally, and who has voted. */
+  app.get('/api/config/profiles/:id/standing', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
+    try {
       return {
-        profile,
-        stub: true,
-        note: '05a stub — approved without signature verification or M-of-N threshold. 05b makes this real.',
+        standing: await approval.getStanding(Number(request.params.id)),
+        votes: await approval.listVotes(Number(request.params.id)),
       };
     } catch (err) {
       return errorResponse(reply, err);
     }
   });
 
+  /** Reject with a signature. One rejection is terminal — a threshold is not a vote to be outnumbered. */
   app.post('/api/config/profiles/:id/reject', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
     try {
-      return {
-        profile: await configService.rejectProfile(Number(request.params.id), {
-          reason: request.body?.reason ?? null,
-          actor: getActor(request),
-        }),
-      };
+      const result = await approval.castVote({
+        profileId: Number(request.params.id),
+        decision: 'reject',
+        signatureHex: request.body?.signature,
+        reason: request.body?.reason ?? null,
+        actor: getActor(request),
+      });
+      return { ...result, profile: await configService.getProfile(Number(request.params.id)) };
     } catch (err) {
       return errorResponse(reply, err);
     }
@@ -319,10 +342,16 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
         { actor: getActor(request) }
       );
 
+      // Signatures gathered during approval travel WITH the config, so the
+      // device can verify independently rather than trusting that the server
+      // checked. Empty until engineers hold keys; the device's `verify` status
+      // reports whether it actually checked them.
+      const sigs = await approval.signaturesFor(activated.id).catch(() => []);
+
       let published = null;
       let publishError = null;
       try {
-        published = await publisher.publishConfig(activated);
+        published = await publisher.publishConfig(activated, { sigs });
       } catch (err) {
         publishError = err.message;
       }
@@ -484,6 +513,83 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   // This is the one place in the API gated by CAP.ADMIN rather than CAP.VIEW or
   // an operational capability, matching the settled matrix: admin manages
   // users, API configuration and server status, and nothing agronomic.
+
+  // ---------------------------------------------------------------------------
+  // Signing keys
+  // ---------------------------------------------------------------------------
+  //
+  // The server receives PUBLIC halves only. Private keys are generated in the
+  // browser and never transmitted — there is no route here that could accept
+  // one, and no column to store it in.
+
+  /** Register the public half of a keypair generated in the browser. */
+  app.post('/api/keys', { preHandler: requireCap(CAP.CONFIG_APPROVE) }, async (request, reply) => {
+    try {
+      const actor = getActor(request);
+      const key = await keyService.registerKey({
+        userId: actor.id,
+        publicKeyHex: request.body?.publicKey,
+        actor,
+      });
+      return reply.code(201).send({ key });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /** The caller's own active key, or null if they have not registered one. */
+  app.get('/api/keys/mine', { preHandler: requireCap(CAP.VIEW) }, async (request) => ({
+    key: await keyService.getActiveKey(getActor(request).id),
+  }));
+
+  /** All keys, active and revoked. Revoked ones are retained so past approvals stay verifiable. */
+  app.get('/api/keys', { preHandler: requireCap(CAP.VIEW) }, async () => ({
+    keys: await keyService.listKeys(),
+  }));
+
+  app.post('/api/keys/:keyId/revoke', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      const key = await keyService.revokeKey({
+        keyId: request.params.keyId,
+        reason: request.body?.reason ?? null,
+        actor: getActor(request),
+      });
+      // A revoked key must not keep an authenticated session alive.
+      await identity.revokeAllSessions(key.user_id);
+      return { key };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Approval policy — ADMIN sets the threshold but cannot approve anything
+  // ---------------------------------------------------------------------------
+
+  app.get('/api/approval/policy', { preHandler: requireCap(CAP.VIEW) }, async () => ({
+    policy: await approval.getPolicy(),
+  }));
+
+  /**
+   * Change the M-of-N threshold.
+   *
+   * Admin-gated, and recorded as an event. Lowering M from 2 to 1 converts a
+   * multi-signature system into a single-signature one, so the change is
+   * logged with a `weakened` flag rather than left for a reader to notice by
+   * comparing numbers.
+   */
+  app.post('/api/approval/policy', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      const policy = await approval.setPolicy({
+        thresholdM: Number(request.body?.thresholdM),
+        proposalTtlHours: request.body?.proposalTtlHours ?? null,
+        actor: getActor(request),
+      });
+      return { policy };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
 
   app.get('/api/users', { preHandler: requireCap(CAP.ADMIN) }, async () => ({
     users: await identity.listUsers(),
