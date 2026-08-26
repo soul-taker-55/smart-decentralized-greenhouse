@@ -1,0 +1,125 @@
+%%-------------- SDIGF ACL rules ------------------------------------------------------
+%% Phase 04/05a — closes the gap where {allow, {security_profile, legacy}} matched
+%% and allowed everything, and no_match=deny was never reached.
+%% Per-account rules below, final rule {deny, all}. as EMQX's own note recommends.
+
+%{allow, {username, {re, "^dashboard$"}}, subscribe, ["$SYS/#"]}.
+
+%{deny, all, subscribe, ["$SYS/#", {eq, "#"}, {eq, "+/#"}]}.
+
+%% sdigf-edge — the ESP32 (and the 04c mock standing in for it).
+%% Publishes telemetry/actuators/health/ack/status. Subscribes to config/cmd/keys.
+{allow, {username, "sdigf-edge"}, publish, ["sdigf/v1/gh1/up/#", "sdigf/v1/gh1/status"]}.
+{allow, {username, "sdigf-edge"}, subscribe, ["sdigf/v1/gh1/down/#"]}.
+
+%% sdigf-bridge — Phase 04d. Read-only by design: subscribe on up/# and status only.
+%% No publish rule exists for this account, on purpose.
+{allow, {username, "sdigf-bridge"}, subscribe, ["sdigf/v1/gh1/up/#", "sdigf/v1/gh1/status"]}.
+
+%% sdigf-backend — Phase 05a. Publishes config/cmd. Also subscribes to down/# so it
+%% can read back its own retained publish and confirm delivery rather than trusting
+%% the publish call succeeded (see server_tier_journal.md §6).
+{allow, {username, "sdigf-backend"}, publish, ["sdigf/v1/gh1/down/#"]}.
+{allow, {username, "sdigf-backend"}, subscribe, ["sdigf/v1/gh1/up/#", "sdigf/v1/gh1/status", "sdigf/v1/gh1/down/#"]}.
+
+%% sdigf-admin — manual inspection (MQTTX etc). Full access to this greenhouse's tree only.
+{allow, {username, "sdigf-admin"}, all, ["sdigf/v1/gh1/#"]}.
+
+{deny, all}.
+
+%%-------------- EMQX reference documentation (unused, kept for reference) -------------
+%%
+%% ------------ The formal spec ----------------------------------------------------------
+%%
+%% -type ipaddr() :: {ipaddr, string()}.
+%% -type ipaddrs() :: {ipaddrs, [string()]}.
+%% -type username() :: {user | username, string() | {re, regex()}}.
+%% -type clientid() :: {client | clientid, string() | {re, regex()}}.
+%% -type client_attr() :: {client_attr, string(), string() | {re, regex()}}.
+%% -type zone() :: {zone, string() | {re, regex()}}.
+%% -type listener() :: {listener, string() | {re, regex()}}.
+%% -type security_profile() :: {security_profile, legacy | hardened}.
+%% -type client_cond() :: ipaddr() | ipaddrs() | username() | clientid() | client_attr() | zone() | listener().
+%% -type cond() :: all | client_cond() | security_profile() | {'and', [cond()]} | {'or',  [cond()]}.
+%% -type simple_action() :: subscribe | publish | all.
+%% -type complex_action() :: {simple_action(), [{qos, 0..2}, {retain, true|false|all}]}.
+%% -type action() :: simple_action() | complex_action().
+%% -type topic() :: string().
+%% -type topic_filter() :: string().
+%% -type topic_match() :: topic() | topic_filter() | {eq, topic() | topic_filter()}.
+%% -type perm() :: allow | deny.
+%% -type rule() :: {perm(), cond(), action(), [topic_match()]} | {perm(), all} | {perm(), security_profile()}.
+
+%%-------------- Viusal aid for the spec -------------------------------------------------
+%%
+%% rule()
+%% ├── {perm(), cond(), action(), [topic_match()]}
+%% │    │       │      │          ├── topic() :: string()
+%% │    │       │      │          ├── topic_filter() :: string()
+%% │    │       │      │          └── {eq, topic() | topic_filter()}
+%% │    │       │      │
+%% │    │       │      ├── simple_action()
+%% │    │       │      │   ├── publish
+%% │    │       │      │   ├── subscribe
+%% │    │       │      │   └── all
+%% │    │       │      └── {simple_action(), [{qos,0..2},{retain,true|false|all}]}
+%% │    │       │
+%% │    │       ├── ipaddr()
+%% │    │       │   └── {ipaddr, string()}
+%% │    │       ├── ipaddrs()
+%% │    │       │   └── {ipaddrs, [string()]}
+%% │    │       ├── username()
+%% │    │       │   ├── {user | username, string()}
+%% │    │       │   └── {user | username, {re, regex()}}
+%% │    │       ├── clientid()
+%% │    │       │   ├── {client | clientid, string()}
+%% │    │       │   └── {client | clientid, {re, regex()}}
+%% │    │       ├── client_attr()
+%% │    │       │   ├── {client_attr, Name :: string(), Value :: string()}
+%% │    │       │   └── {client_attr, Name :: string(), ValuePattern :: {re, regex()}}
+%% │    │       ├── zone()
+%% │    │       │   ├── {zone, string()}
+%% │    │       │   └── {zone, {re, regex()}}
+%% │    │       ├── listener()
+%% │    │       │   ├── {listener, string()}
+%% │    │       │   └── {listener, {re, regex()}}
+%% │    │       ├── security_profile()
+%% │    │       │   └── {security_profile, legacy | hardened}
+%% │    │       ├── {'and', [cond()]}
+%% │    │       ├── {'or', [cond()]}
+%% │    │       └── all
+%% │    │
+%% │    ├── allow
+%% │    └── deny
+%% │
+%% └── {perm(), all}
+%%
+
+%% This file defines a set of ACL rules for MQTT client pub/sub authorization.
+%% The content is of Erlang-term format.
+%% Each Erlang-term is a tuple `{...}` terminated by dot `.`
+%%
+%% - `perm()`: The permission. Defines whether this is an `allow` or `deny` rule.
+%% - `cond()`: The rule matching condition.
+%%   - `all`: A rule which applies to all clients and all profiles.
+%%   - `{ipaddr, IpAddress}`: Matches a client by source IP address. CIDR notation is allowed.
+%%   - `{ipaddrs, [IpAddress]}`: Matches clients by a set of IP addresses. CIDR notation is allowed.
+%%   - `{clientid, ClientID}`: Matches a client by ID.
+%%   - `{username, Username}`: Matches a client by username.
+%%   - `{client_attr, AttrName, AttrValue}`: Matches a client by client-attribute.
+%%   - `{zone, Zone}`: Matches a client by zone.
+%%   - `{listener, Listener}`: Matches a client by listener.
+%%   - `{security_profile, Profile}`: Matches when `EMQX_SECURITY_PROFILE` resolves to `Profile`.
+%%   - `{..., {re, ..}}`: Regular expression to match either clientid or username.
+%%   - `{'and', [...]}`: Combines a list of matching conditions.
+%%   - `{'or', [...]}`: Combines a list of matching conditions.
+%% - `action()`: Matches publish or subscribe actions (or both).
+%%   The special value `all` denotes allowing or denying both `publish` and `subscribe`.
+%%   It can also be associated with `qos` and `retain` flags, e.g.
+%%   `{publish, [{qos,0},{retain,false}]}`.
+%% - `[topic_match()]`: A list of topics or topic-filters to match.
+%%   A special tuple `{eq, topic_match()}` matches the specific wildcard subscription
+%%   literally instead of performing a topic match.
+%%   A special value `all` is like topic filter `"#"`, but also matches `$` prefixed topics.
+%%   Supported placeholders: `${username}`, `${clientid}`, `${cert_common_name}`,
+%%   `${client_attrs.NAME}`, `${zone}`.
