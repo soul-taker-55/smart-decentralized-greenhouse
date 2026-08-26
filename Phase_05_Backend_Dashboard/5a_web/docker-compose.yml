@@ -1,0 +1,86 @@
+# SDIGF Phase 05a — `sdigf-backend` Dokploy stack.
+#
+# A SEPARATE SERVICE FROM THE BRIDGE, deliberately. The 04d bridge is read-only
+# by design — it never subscribes to down/config or down/cmd and never
+# publishes. That separation is what lets the thesis claim no code path exists
+# from the logging tier to an actuator, as a structural fact rather than a
+# policy. This service is the counterpart: it is the only thing that publishes
+# to down/config and down/cmd, and it never writes to the logging database.
+#
+# No Traefik labels here. Dokploy generates them from the domain configured in
+# its UI, matching how emqx.progrex.tech is already served.
+
+services:
+  sdigf-backend:
+    build:
+      # Parent of frontend/ and backend/ — the dashboard is built into the
+      # same image, so the build needs both.
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+    environment:
+      PORT: 3000
+      LOG_LEVEL: info
+      NODE_ENV: production
+
+      # ---------------------------------------------------------------------
+      # Greenhouse identity
+      # ---------------------------------------------------------------------
+      # The contract carries `gh` so the topic tree accommodates more than one
+      # greenhouse. This deployment serves exactly one; multi-greenhouse
+      # support is deliberately not built.
+      GH_ID: gh1
+      GH_NAME: "Greenhouse Prototype"
+      GH_PLANTS: "Lettuce & Chicory"
+
+      # ---------------------------------------------------------------------
+      # Databases — two, and the distinction matters
+      # ---------------------------------------------------------------------
+      # PG_DB is this service's OWN database: config profiles, commands,
+      # server events. Read and written freely.
+      #
+      # PG_TELEMETRY_DB is the bridge's logging database. READ ONLY from here —
+      # every query goes through db.queryTelemetry(), which refuses anything
+      # that is not a SELECT. Granting this service a SELECT-only Postgres role
+      # on sdigf_db would be the durable version of that guarantee and is worth
+      # doing before production; the runtime check catches the mistake during
+      # development, where it would otherwise corrupt the thesis dataset
+      # silently.
+      PG_HOST: ${PG_HOST}
+      PG_PORT: ${PG_PORT}
+      PG_USER: ${PG_USER}
+      PG_PASS: ${PG_PASS}
+      PG_DB: ${PG_DB}
+      PG_TELEMETRY_DB: ${PG_TELEMETRY_DB}
+
+      # ---------------------------------------------------------------------
+      # Broker
+      # ---------------------------------------------------------------------
+      # sdigf-backend has publish rights on down/# and subscribe rights on
+      # up/#, status and down/#. The subscription to its own down/config is
+      # deliberate: publishing is confirmed by reading the retained message
+      # back, because a denied publish can return success silently.
+      MQTT_HOST: ${MQTT_HOST}
+      MQTT_PORT: ${MQTT_PORT}
+      MQTT_USER: ${MQTT_USER}
+      MQTT_PASS: ${MQTT_PASS}
+      MQTT_CLIENT_ID: sdigf-backend
+
+      # ---------------------------------------------------------------------
+      # Manual command ceiling
+      # ---------------------------------------------------------------------
+      # PROVISIONAL. A flat cap does not reflect that actuators have very
+      # different safe durations — the pump has a max-runtime guard, relays
+      # have a minimum off-time, the humidifier has neither. Reconcile against
+      # Phase 02's safety envelope once real per-actuator limits exist and
+      # replace this with a per-target map. Deliberately not a database CHECK
+      # constraint, so changing it needs no migration.
+      COMMAND_TTL_MAX_S: 3600
+
+    networks:
+      - dokploy-network
+
+networks:
+  dokploy-network:
+    external: true
