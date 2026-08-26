@@ -1191,3 +1191,139 @@ body {
     grid-column: 2;
   }
 }
+
+/* ─── Expandable panels and history ─────────────────────────────────────── */
+
+.card-head.as-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.card-head.as-toggle:hover {
+  background: var(--panel-sunk);
+}
+
+.head-right {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.chev {
+  font-size: 10px;
+  color: var(--ink-faint);
+  transition: transform 0.12s ease;
+  display: inline-block;
+}
+
+.chev.up {
+  transform: rotate(180deg);
+}
+
+/* An open panel spans the grid, so a chart gets usable width without the
+   sibling panels being pushed out of view. */
+.card.open {
+  grid-column: 1 / -1;
+}
+
+.expand {
+  border-top: 1px solid var(--line);
+  padding: 10px 14px 12px;
+}
+
+.whichrow {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 9px;
+}
+
+.hist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.hist-title {
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.ranges {
+  display: flex;
+  gap: 3px;
+}
+
+.rbtn {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--panel);
+  color: var(--ink-soft);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.rbtn:hover {
+  border-color: var(--ink-faint);
+  color: var(--ink);
+}
+
+.rbtn.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.hist-empty {
+  padding: 26px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.hist-foot {
+  font-size: 10px;
+  color: var(--ink-faint);
+  margin-top: 5px;
+}
+
+.ctip {
+  background: var(--panel);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r);
+  padding: 6px 9px;
+  box-shadow: 0 2px 8px rgba(18, 24, 31, 0.09);
+}
+
+.ctip-t {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.ctip-v {
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 1px;
+}
+
+.ctip-r {
+  font-size: 10px;
+  color: var(--ink-faint);
+}
+
+.ctip-q {
+  display: flex;
+  gap: 7px;
+  margin-top: 4px;
+  font-family: var(--mono);
+  font-size: 9.5px;
+}

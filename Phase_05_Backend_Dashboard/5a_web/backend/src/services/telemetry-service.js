@@ -178,7 +178,11 @@ export async function getHistory(sensorName, { hours = 24, bucketMinutes = null 
   const bucket = bucketMinutes ?? (hours <= 6 ? 1 : hours <= 48 ? 5 : hours <= 168 ? 30 : 180);
 
   const r = await queryTelemetry(
-    `SELECT time_bucket($1 * interval '1 minute', time) AS bucket,
+    // Epoch-floor bucketing rather than TimescaleDB's time_bucket(). Identical
+    // result, but plain SQL: the backend is a separate service from the bridge
+    // and has no other reason to require the extension, and a portable query is
+    // one that integration tests actually exercise rather than assume.
+    `SELECT to_timestamp(floor(extract(epoch FROM time) / ($1 * 60)) * ($1 * 60)) AS bucket,
             avg(value)   AS avg_value,
             min(value)   AS min_value,
             max(value)   AS max_value,

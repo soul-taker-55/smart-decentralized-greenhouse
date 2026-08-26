@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { formatAge, formatValue } from '../api.js';
+import HistoryChart from './HistoryChart.jsx';
 
 /**
  * A single reading, with its quality rule.
@@ -70,12 +72,27 @@ function Reading({ reading, unit, place }) {
  * but adjacent would hide the thing an operator is actually looking for.
  */
 export default function SensorPanel({ group }) {
+  const [open, setOpen] = useState(false);
+
+  // Which series to chart. For a paired sensor the inside reading is the one
+  // the control loop acts on, so it is the default; outside is one click away.
+  const [which, setWhich] = useState(group.paired ? 'inner' : 'single');
+  const charted = group.paired ? group[which]?.sensor : group.single?.sensor;
+
   return (
-    <div className="card">
-      <div className="card-head">
+    <div className={`card ${open ? 'open' : ''}`}>
+      <button
+        className="card-head as-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        title={open ? 'Hide history' : 'Show history'}
+      >
         <span className="label">{group.label}</span>
-        <span className="unit">{group.unit}</span>
-      </div>
+        <span className="head-right">
+          <span className="unit">{group.unit}</span>
+          <span className={`chev ${open ? 'up' : ''}`} aria-hidden="true">▾</span>
+        </span>
+      </button>
 
       {group.note && (
         // A caveat that changes how the number should be READ is not a
@@ -94,6 +111,29 @@ export default function SensorPanel({ group }) {
           <Reading reading={group.single} unit={group.unit} place={null} />
         )}
       </div>
+
+      {/* Inline expansion rather than a modal: Conflict A is diagnosed by
+          reading temperature and humidity TOGETHER, and a modal hides the
+          sibling panel that makes the correlation visible. */}
+      {open && charted && (
+        <div className="expand">
+          {group.paired && (
+            <div className="whichrow">
+              <button className={`rbtn ${which === 'inner' ? 'on' : ''}`} onClick={() => setWhich('inner')}>
+                Inside
+              </button>
+              <button className={`rbtn ${which === 'outer' ? 'on' : ''}`} onClick={() => setWhich('outer')}>
+                Outside
+              </button>
+            </div>
+          )}
+          <HistoryChart
+            sensor={charted}
+            unit={group.unit}
+            label={group.paired ? `${group.label} ${which === 'inner' ? 'inside' : 'outside'}` : group.label}
+          />
+        </div>
+      )}
     </div>
   );
 }
