@@ -6,7 +6,7 @@
 
 set -e
 
-SCHEMA_URL="https://raw.githubusercontent.com/soul-taker-55/smart-decentralized-greenhouse/main/phase_04/db/sdigf-db-schema.sql"
+SCHEMA_URL="https://raw.githubusercontent.com/soul-taker-55/smart-decentralized-greenhouse/main/phase_04/db/sdigf-db-schema-v2.sql"
 SCHEMA_FILE="/tmp/sdigf-db-schema.sql"
 
 echo "[$(date)] =========================================="
