@@ -1378,3 +1378,213 @@ body {
     transition: none !important;
   }
 }
+
+/* ─── Sign-in and invite ────────────────────────────────────────────────── */
+
+.gate {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.gate-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 26px 24px;
+}
+
+.gate-brand {
+  margin-bottom: 20px;
+}
+
+.gate-brand b {
+  font-family: var(--sans);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  display: block;
+}
+
+.gate-brand span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.gate-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.gate-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.gate-fields span {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.gate-fields input[type='text'],
+.gate-fields input[type='password'],
+.gate-fields input:not([type]) {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--text);
+  width: 100%;
+}
+
+.gate-fields input:focus {
+  border-color: var(--green-dim);
+}
+
+.gate-check {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px !important;
+}
+
+.gate-check input {
+  width: auto;
+  accent-color: var(--green);
+}
+
+.gate-summary {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.gate-summary div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  padding: 2px 0;
+}
+
+.gate-summary span {
+  color: var(--muted);
+}
+
+.gate .btn {
+  width: 100%;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.gate-error {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--red);
+  border-radius: 3px;
+  padding: 9px 11px;
+  font-size: 11.5px;
+  line-height: 1.55;
+  margin-bottom: 12px;
+}
+
+.gate-hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-bottom: 10px;
+}
+
+.gate-note {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* ─── Sidebar identity ──────────────────────────────────────────────────── */
+
+.nav-user {
+  margin-top: auto;
+  padding: 14px 18px 0;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.nav-who b {
+  font-size: 12.5px;
+  display: block;
+}
+
+.nav-who span {
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ─── Key setup ─────────────────────────────────────────────────────────── */
+
+.keycard {
+  max-width: 620px;
+}
+
+.keysteps {
+  padding: 0 14px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.keystep {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 12px 13px;
+}
+
+/* A step that is not yet reachable is dimmed rather than hidden, so the whole
+   sequence is visible before it is begun — the backup step in particular should
+   not be a surprise that appears after a key already exists. */
+.keystep.dim {
+  opacity: 0.45;
+}
+
+.keystep b {
+  font-size: 12px;
+  display: block;
+  margin-bottom: 6px;
+  color: var(--green);
+}
+
+.keystep p {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+  margin: 0 0 10px;
+}
+
+.keystep .gate-check {
+  display: flex;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.keystep label.btn {
+  display: inline-block;
+  cursor: pointer;
+}

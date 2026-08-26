@@ -9,7 +9,9 @@
 
 async function get(path) {
   try {
-    const res = await fetch(path, { headers: { Accept: 'application/json' } });
+    // credentials: 'include' so the session cookie travels. Without it every
+    // gated endpoint returns 401 and the cause is invisible in the UI.
+    const res = await fetch(path, { headers: { Accept: 'application/json' }, credentials: 'include' });
     const data = await res.json().catch(() => null);
     if (!res.ok) return { data, error: data?.message || `HTTP ${res.status}` };
     return { data, error: null };
@@ -23,6 +25,7 @@ async function post(path, body) {
     const res = await fetch(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(body ?? {}),
     });
     const data = await res.json().catch(() => null);
@@ -34,6 +37,30 @@ async function post(path, body) {
 }
 
 export const api = {
+  // ── auth ────────────────────────────────────────────────────────────────
+  me: () => get('/api/auth/me'),
+  login: (identifier, password, remember) =>
+    post('/api/auth/login', { identifier, password, remember }),
+  logout: () => post('/api/auth/logout'),
+  peekInvite: (token) => get(`/api/auth/invite/${token}`),
+  redeemInvite: (token, password) => post(`/api/auth/invite/${token}/redeem`, { password }),
+
+  // ── keys ────────────────────────────────────────────────────────────────
+  registerKey: (publicKey) => post('/api/keys', { publicKey }),
+  myKey: () => get('/api/keys/mine'),
+  listKeys: () => get('/api/keys'),
+  revokeKey: (keyId, reason) => post(`/api/keys/${keyId}/revoke`, { reason }),
+
+  // ── approval ────────────────────────────────────────────────────────────
+  standing: (id) => get(`/api/config/profiles/${id}/standing`),
+  approvalPolicy: () => get('/api/approval/policy'),
+  setApprovalPolicy: (thresholdM, proposalTtlHours) =>
+    post('/api/approval/policy', { thresholdM, proposalTtlHours }),
+
+  // ── users (admin) ───────────────────────────────────────────────────────
+  users: () => get('/api/users'),
+  inviteUser: (email, username, role) => post('/api/users/invite', { email, username, role }),
+
   status: () => get('/api/status'),
   live: () => get('/api/state/live'),
   history: (sensor, hours = 24) => get(`/api/state/history/${sensor}?hours=${hours}`),
@@ -47,8 +74,8 @@ export const api = {
   diff: (id) => get(`/api/config/profiles/${id}/diff`),
   createProfile: (cfg, name) => post('/api/config/profiles', { cfg, name }),
   propose: (id, ttlHours) => post(`/api/config/profiles/${id}/propose`, { ttlHours }),
-  approve: (id) => post(`/api/config/profiles/${id}/approve`),
-  reject: (id, reason) => post(`/api/config/profiles/${id}/reject`, { reason }),
+  approve: (id, signature) => post(`/api/config/profiles/${id}/approve`, { signature }),
+  reject: (id, signature, reason) => post(`/api/config/profiles/${id}/reject`, { signature, reason }),
   activate: (id) => post(`/api/config/profiles/${id}/activate`),
   republish: () => post('/api/config/republish'),
 

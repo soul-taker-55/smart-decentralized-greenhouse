@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api.js';
+import { signCanonical, loadKey } from '../signing.js';
 
 /**
  * Human labels and help text for every field in contract §4.
@@ -345,9 +346,44 @@ export default function ConfigPage() {
     setMsg(null);
     const { data, error } = await fn(id);
     setBusy(false);
-    if (error) return setMsg({ ok: false, text: error });
+    if (error) return setMsg({ ok: false, text: data?.message ?? error });
     setMsg({ ok: true, text: typeof okText === 'function' ? okText(data) : okText });
     refresh();
+  }
+
+  /**
+   * Sign a config, then submit the vote.
+   *
+   * The signature is over cfg_canonical — the exact string the SERVER stored,
+   * fetched fresh rather than rebuilt here. Signing a locally reconstructed
+   * copy would mean approving something that might differ by a byte from what
+   * the device will receive, and the signature would fail on the hardware with
+   * nothing to explain why.
+   */
+  async function vote(profileId, decision, reason) {
+    setBusy(true);
+    setMsg(null);
+    try {
+      const { data: fresh } = await api.profile(profileId);
+      const signature = await signCanonical(fresh.profile.cfgCanonical);
+      const { data, error } =
+        decision === 'approve'
+          ? await api.approve(profileId, signature)
+          : await api.reject(profileId, signature, reason);
+      setBusy(false);
+      if (error) return setMsg({ ok: false, text: data?.message ?? error });
+      setMsg({
+        ok: true,
+        text:
+          decision === 'approve'
+            ? `Signed and approved. ${data.approvals} of ${data.thresholdM} approvals — ${data.satisfied ? 'threshold met.' : 'awaiting more.'}`
+            : 'Signed and rejected. One rejection ends a proposal.',
+      });
+      refresh();
+    } catch (e) {
+      setBusy(false);
+      setMsg({ ok: false, text: e.message });
+    }
   }
 
   if (!schema || !draft) return <p className="muted">Loading…</p>;
@@ -452,11 +488,11 @@ export default function ConfigPage() {
                             {/* 05a has no signatures and no threshold. The button
                                 says so, because a UI that looked like a real
                                 approval would be the most misleading thing here. */}
-                            <button className="btn sm" disabled={busy} onClick={() => act(api.approve, p.id, 'Approved without signatures — placeholder until access control is added.')}>
-                              Approve
+                            <button className="btn sm" disabled={busy} onClick={() => vote(p.id, 'approve')}>
+                              Sign &amp; approve
                             </button>
-                            <button className="btn sm ghost" disabled={busy} onClick={() => act((id) => api.reject(id, 'Rejected from dashboard'), p.id, 'Rejected.')}>
-                              Reject
+                            <button className="btn sm ghost" disabled={busy} onClick={() => vote(p.id, 'reject', 'Rejected from dashboard')}>
+                              Sign &amp; reject
                             </button>
                           </>
                         )}
@@ -479,8 +515,8 @@ export default function ConfigPage() {
 
                       {['PROPOSED', 'PARTIALLY_APPROVED'].includes(p.status) && (
                         <div className="stubnote">
-                          Approval here is a placeholder. Signed, multi-person approval arrives in
-                          the next phase.
+                          Approving signs this configuration with your key. Your own proposal
+                          cannot be approved by you, and one rejection ends a proposal.
                         </div>
                       )}
                     </div>

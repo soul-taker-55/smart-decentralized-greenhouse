@@ -6,6 +6,7 @@ import SensorPanel from './components/SensorPanel.jsx';
 import ActuatorPanel from './components/ActuatorPanel.jsx';
 import ConfigPage from './components/ConfigPage.jsx';
 import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
+import { LoginPage, InvitePage, KeySetup } from './components/AuthPages.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -42,28 +43,36 @@ function usePoll(fn, ms) {
  * admin, an engineer and a farmer see different entries. Shipping flat top
  * navigation now would mean rebuilding it then.
  */
-function Sidebar() {
+/**
+ * Sidebar, scoped by role.
+ *
+ * Hiding an entry is a courtesy, not a control — every endpoint behind these
+ * links is gated server-side, and an admin who navigates to /config directly
+ * still gets a 403 on anything they may not do. What this avoids is offering
+ * someone a button that will refuse them.
+ */
+function Sidebar({ user, onSignOut }) {
   const link = ({ isActive }) => (isActive ? 'active' : '');
   return (
     <nav className="nav">
-      <NavLink to="/" end className={link}>
-        Live
-      </NavLink>
-      <NavLink to="/actuators" className={link}>
-        Actuators
-      </NavLink>
-      <NavLink to="/config" className={link}>
-        Configuration
-      </NavLink>
-      <NavLink to="/events" className={link}>
-        Activity
-      </NavLink>
-      <NavLink to="/camera" className={link}>
-        Camera
-      </NavLink>
-      <div className="nav-note">
-        No sign-in yet. Everyone sees everything until access control arrives in the next
-        phase.
+      <NavLink to="/" end className={link}>Live</NavLink>
+      <NavLink to="/actuators" className={link}>Actuators</NavLink>
+      <NavLink to="/config" className={link}>Configuration</NavLink>
+      <NavLink to="/events" className={link}>Activity</NavLink>
+      <NavLink to="/camera" className={link}>Camera</NavLink>
+      {user?.role === 'engineer' && (
+        <NavLink to="/key" className={link}>My signing key</NavLink>
+      )}
+      {user?.role === 'admin' && (
+        <NavLink to="/admin" className={link}>Users &amp; keys</NavLink>
+      )}
+
+      <div className="nav-user">
+        <div className="nav-who">
+          <b>{user?.username}</b>
+          <span>{user?.role}</span>
+        </div>
+        <button className="btn ghost sm" onClick={onSignOut}>Sign out</button>
       </div>
     </nav>
   );
@@ -195,13 +204,38 @@ function ActivityRoute() {
 }
 
 export default function App() {
+  const [user, setUser] = useState(undefined);
+
+  // Resolve the session once at load. `undefined` means not yet known, which is
+  // distinct from `null` meaning signed out — rendering the login form during
+  // that gap would flash it at an already-authenticated user on every refresh.
+  useEffect(() => {
+    api.me().then(({ data }) => setUser(data?.user ?? null));
+  }, []);
+
+  // Invite links are reachable without a session: the link IS the credential.
+  const invitePath = window.location.pathname.startsWith('/invite/')
+    ? window.location.pathname.slice('/invite/'.length)
+    : null;
+
+  if (invitePath) {
+    return <InvitePage token={invitePath} onRedeemed={() => (window.location.href = '/')} />;
+  }
+
+  if (user === undefined) return <div className="gate"><div className="gate-card">Loading…</div></div>;
+  if (user === null) return <LoginPage onSignedIn={setUser} />;
+
+  return <Shell user={user} onSignOut={async () => { await api.logout(); setUser(null); }} />;
+}
+
+function Shell({ user, onSignOut }) {
   const { data: status } = usePoll(api.status, 10000);
 
   return (
     <div className="app">
       <StatusStrip status={status} />
       <div className="body">
-        <Sidebar />
+        <Sidebar user={user} onSignOut={onSignOut} />
         <main className="main">
           <Routes>
             <Route path="/" element={<LivePage status={status} />} />
@@ -209,6 +243,15 @@ export default function App() {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/events" element={<ActivityRoute />} />
             <Route path="/camera" element={<CameraPage />} />
+            <Route
+              path="/key"
+              element={
+                <>
+                  <div className="h"><h1>My signing key</h1><span className="sub">Created here, never sent to the server</span></div>
+                  <KeySetup user={user} />
+                </>
+              }
+            />
           </Routes>
         </main>
       </div>
