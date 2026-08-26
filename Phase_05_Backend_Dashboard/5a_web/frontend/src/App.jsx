@@ -3,6 +3,9 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import { api } from './api.js';
 import StatusStrip from './components/StatusStrip.jsx';
 import SensorPanel from './components/SensorPanel.jsx';
+import ActuatorPanel from './components/ActuatorPanel.jsx';
+import ConfigPage from './components/ConfigPage.jsx';
+import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -104,7 +107,7 @@ function LivePage({ status }) {
         </div>
       )}
 
-      {!loaded && <p style={{ color: 'var(--ink-faint)', fontSize: 13 }}>Loading readings…</p>}
+      {!loaded && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading readings…</p>}
 
       {loaded && groups.length === 0 && !unavailable && (
         <div className="emptystate">
@@ -132,7 +135,7 @@ function LivePage({ status }) {
       )}
 
       {loaded && hasData === false && groups.length > 0 && (
-        <p style={{ color: 'var(--ink-faint)', fontSize: 12, marginTop: 14 }}>
+        <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 14 }}>
           Panels are shown for all eleven readings so absence is visible. None has reported yet.
         </p>
       )}
@@ -140,16 +143,55 @@ function LivePage({ status }) {
   );
 }
 
-/** Placeholder for a page not yet built in this phase. */
-function Placeholder({ title, children }) {
+/**
+ * The Actuators page.
+ *
+ * Separated from Live because this is the one screen in 05a that can actually
+ * change hardware state. Keeping observing and acting on different screens
+ * means a manual override is always a deliberate navigation, never a stray
+ * click while reading numbers.
+ */
+function ActuatorsPage({ status }) {
+  const [tick, setTick] = useState(0);
+  const { data, loaded } = usePoll(api.live, 10000);
+  const { data: targetData } = usePoll(api.commandTargets, 300000);
+
+  const actuators = data?.actuators;
+  const neverSeen = status && !status.edge?.everSeen;
+
   return (
     <>
       <div className="h">
-        <h1>{title}</h1>
+        <h1>Actuators</h1>
+        <span className="sub">What the controller is running right now</span>
       </div>
-      <div className="emptystate">{children}</div>
+
+      {neverSeen && (
+        <div className="banner">
+          No controller has connected, so nothing here reflects real hardware. Commands sent now
+          are recorded and published, and will be waiting on the broker when a controller
+          subscribes.
+        </div>
+      )}
+
+      {!loaded && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</p>}
+
+      {loaded && (
+        <ActuatorPanel
+          key={tick}
+          actuators={actuators}
+          targets={targetData}
+          onIssued={() => setTick((t) => t + 1)}
+        />
+      )}
     </>
   );
+}
+
+/** Activity, polled so device events appear without a manual refresh. */
+function ActivityRoute() {
+  const { data, loaded } = usePoll(() => api.events(150), 15000);
+  return <ActivityPage events={data} loaded={loaded} />;
 }
 
 export default function App() {
@@ -163,48 +205,10 @@ export default function App() {
         <main className="main">
           <Routes>
             <Route path="/" element={<LivePage status={status} />} />
-            <Route
-              path="/actuators"
-              element={
-                <Placeholder title="Actuators">
-                  <h2>Coming in the next step</h2>
-                  <p>
-                    Relay states, ventilation stage, canopy position, and manual overrides with
-                    the time remaining on each.
-                  </p>
-                </Placeholder>
-              }
-            />
-            <Route
-              path="/config"
-              element={
-                <Placeholder title="Configuration">
-                  <h2>Coming in the next step</h2>
-                  <p>Editing, proposals, differences against the active profile, and approval.</p>
-                </Placeholder>
-              }
-            />
-            <Route
-              path="/events"
-              element={
-                <Placeholder title="Activity">
-                  <h2>Coming in the next step</h2>
-                  <p>Server actions and device events on one timeline.</p>
-                </Placeholder>
-              }
-            />
-            <Route
-              path="/camera"
-              element={
-                <Placeholder title="Camera">
-                  <h2>Reserved for the vision phase</h2>
-                  <p>
-                    The camera runs on a separate controller and is deliberately outside the
-                    control path. This space is held for it; nothing is wired up yet.
-                  </p>
-                </Placeholder>
-              }
-            />
+            <Route path="/actuators" element={<ActuatorsPage status={status} />} />
+            <Route path="/config" element={<ConfigPage />} />
+            <Route path="/events" element={<ActivityRoute />} />
+            <Route path="/camera" element={<CameraPage />} />
           </Routes>
         </main>
       </div>

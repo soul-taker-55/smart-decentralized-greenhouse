@@ -169,15 +169,15 @@ export default function HistoryChart({ sensor, unit, label }) {
                 scale="time"
                 domain={['dataMin', 'dataMax']}
                 tickFormatter={(t) => axisTime(t, hours)}
-                stroke="var(--ink-faint)"
-                tick={{ fontSize: 10, fontFamily: 'IBM Plex Mono' }}
+                stroke="var(--muted)"
+                tick={{ fontSize: 10, fontFamily: 'IBM Plex Mono', fill: '#7c9488' }}
                 tickLine={false}
                 minTickGap={40}
               />
               <YAxis
                 domain={domain}
-                stroke="var(--ink-faint)"
-                tick={{ fontSize: 10, fontFamily: 'IBM Plex Mono' }}
+                stroke="var(--muted)"
+                tick={{ fontSize: 10, fontFamily: 'IBM Plex Mono', fill: '#7c9488' }}
                 tickLine={false}
                 axisLine={false}
                 width={44}
@@ -189,14 +189,14 @@ export default function HistoryChart({ sensor, unit, label }) {
               <Area
                 dataKey="band"
                 stroke="none"
-                fill="var(--accent)"
+                fill="var(--green)"
                 fillOpacity={0.12}
                 isAnimationActive={false}
                 connectNulls={false}
               />
               <Line
                 dataKey="avg"
-                stroke="var(--accent)"
+                stroke="var(--green)"
                 strokeWidth={1.6}
                 dot={false}
                 isAnimationActive={false}

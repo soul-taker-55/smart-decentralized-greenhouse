@@ -1,52 +1,57 @@
 /*
- * SDIGF dashboard — design tokens and base styles.
+ * SDIGF dashboard — dark instrumentation theme.
  *
  * ─── DIRECTION ─────────────────────────────────────────────────────────────
  *
- * The subject is a SEALED PLEXIGLASS ENCLOSURE full of instrumentation. Not a
- * farm. The palette comes from that world: cool pale ground, as if looking
- * through the acrylic in daylight, with horticultural grow-light MAGENTA as the
- * accent — the actual colour a red+blue horticultural LED array emits, so the
- * one saturated colour on the page is the one colour genuinely present inside
- * the box.
+ * A test bench, not a farm. Monospace throughout, deep green-black ground,
+ * nested panels, and section rules that read like labelled dividers on an
+ * instrument front panel. Values are the loudest thing on screen; everything
+ * else is annotation around them.
  *
- * ─── THE THESIS OF THIS INTERFACE ──────────────────────────────────────────
+ * ─── COLOUR DISCIPLINE ─────────────────────────────────────────────────────
  *
- * The edge tier is authoritative; this dashboard is a viewer. So the single job
- * of the page is letting an operator judge WHETHER THE NUMBERS CAN BE TRUSTED.
- * Quality state is therefore the loudest structural device on the page, not a
- * tooltip: every reading sits on a quality rule whose PATTERN encodes state, so
- * it survives greyscale printing and colour-blindness alike.
+ * The palette assigns green, amber and red to interface roles (active, warning,
+ * error). This dashboard already uses those three for READING QUALITY — ok,
+ * stale, fail — and that meaning is the one it cannot afford to blur, because a
+ * stale reading shown as current is the main way it could mislead an operator.
+ *
+ * Resolved by weight and shape rather than by hue:
+ *   - Full-saturation green/amber/red belong to quality state.
+ *   - Interface chrome fills with the DIMMED green (--green-dim).
+ *   - Quality is additionally carried by PATTERN — solid, dashed, hatched,
+ *     dotted — so it survives greyscale printing and colour-blindness and never
+ *     depends on hue alone.
+ *
+ * A filled button and a 3px rule under a number are different shapes in
+ * different places; the weight difference stops them competing.
  */
 
 :root {
-  /* Ground — plexiglass seen in daylight, slightly blue, never warm. */
-  --bg: #eef1f4;
-  --panel: #ffffff;
-  --panel-sunk: #f6f8fa;
+  --bg: #0f1613;
+  --panel: #16201c;
+  --panel-2: #1b2621;
+  --line: #263831;
 
-  --ink: #12181f;
-  --ink-soft: #5a6672;
-  --ink-faint: #8e99a4;
+  --green: #7fd48a;
+  --green-dim: #4a7a55;
+  --amber: #e8a94d;
+  --red: #e06b6b;
 
-  --line: #d8dee5;
-  --line-strong: #b8c2cc;
+  --text: #e9f1ea;
+  --muted: #7c9488;
+  --track: #2a3730;
 
-  /* Grow-light magenta. Used with restraint: active state and focus only. */
-  --accent: #c6247e;
-  --accent-soft: #fce8f2;
+  /* Quality maps onto the palette rather than introducing new hues. */
+  --q-ok: var(--green);
+  --q-stale: var(--amber);
+  --q-fail: var(--red);
+  --q-init: var(--muted);
+  --q-none: var(--track);
 
-  /* Quality states. Paired with a pattern, never colour alone. */
-  --q-ok: #1f7a4d;
-  --q-stale: #b26a00;
-  --q-fail: #c0392b;
-  --q-init: #6b7785;
-  --q-none: #b8c2cc;
-
-  --display: 'Space Grotesk', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --sans: 'Space Grotesk', system-ui, sans-serif;
 
-  --r: 3px;
+  --r: 4px;
 }
 
 * {
@@ -62,16 +67,17 @@ body,
 
 body {
   background: var(--bg);
-  color: var(--ink);
-  font-family: var(--display);
-  font-size: 15px;
-  line-height: 1.45;
+  /* A faint wash at the top edge, as if the grow light were just out of frame.
+     The only ornament in the interface. */
+  background-image: radial-gradient(900px 340px at 22% -12%, rgba(127, 212, 138, 0.07), transparent 70%);
+  background-attachment: fixed;
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Every number on this page is monospaced with tabular figures. Readings update
-   on a timer, and proportional digits make values jump horizontally as they
-   change — which reads as instability in the data rather than in the font. */
 .num {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
@@ -79,11 +85,16 @@ body {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--green);
   outline-offset: 2px;
 }
 
-/* ─── App frame ─────────────────────────────────────────────────────────── */
+::selection {
+  background: var(--green-dim);
+  color: var(--text);
+}
+
+/* ─── Frame ─────────────────────────────────────────────────────────────── */
 
 .app {
   display: grid;
@@ -93,117 +104,111 @@ body {
 
 .body {
   display: grid;
-  grid-template-columns: 190px 1fr;
+  grid-template-columns: 200px 1fr;
   min-height: 0;
 }
 
 .main {
-  padding: 22px 26px 60px;
+  padding: 24px 28px 64px;
   overflow-y: auto;
 }
 
 /* ─── Sidebar ───────────────────────────────────────────────────────────── */
 
 .nav {
-  background: var(--panel);
   border-right: 1px solid var(--line);
   padding: 18px 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .nav a {
-  display: flex;
-  align-items: baseline;
-  gap: 9px;
-  padding: 8px 18px;
-  color: var(--ink-soft);
+  padding: 8px 20px;
+  color: var(--muted);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
   border-left: 2px solid transparent;
 }
 
 .nav a:hover {
-  background: var(--panel-sunk);
-  color: var(--ink);
+  color: var(--text);
+  background: var(--panel);
 }
 
 .nav a.active {
-  color: var(--ink);
-  border-left-color: var(--accent);
-  font-weight: 500;
+  color: var(--green);
+  border-left-color: var(--green);
+  background: var(--panel);
 }
 
 .nav-note {
   margin-top: auto;
-  padding: 14px 18px 0;
-  font-size: 11px;
-  color: var(--ink-faint);
-  line-height: 1.5;
+  padding: 14px 20px 0;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.6;
   border-top: 1px solid var(--line);
 }
 
 /* ─── Status strip ──────────────────────────────────────────────────────── */
 
 .strip {
-  background: var(--panel);
   border-bottom: 1px solid var(--line);
   display: flex;
   align-items: stretch;
   flex-wrap: wrap;
+  background: rgba(22, 32, 28, 0.6);
 }
 
 .strip-id {
-  padding: 11px 20px;
+  padding: 12px 22px;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-width: 210px;
+  min-width: 220px;
 }
 
 .strip-id b {
+  font-family: var(--sans);
   font-size: 15px;
   font-weight: 700;
-  letter-spacing: -0.01em;
 }
 
 .strip-id span {
-  font-size: 11px;
-  color: var(--ink-faint);
+  font-size: 10.5px;
+  color: var(--muted);
 }
 
 .strip-cell {
-  padding: 11px 18px;
+  padding: 12px 18px;
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   justify-content: center;
-  min-width: 118px;
+  min-width: 124px;
 }
 
 .strip-cell .k {
-  font-size: 10px;
-  letter-spacing: 0.09em;
+  font-size: 9.5px;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--ink-faint);
+  color: var(--muted);
 }
 
 .strip-cell .v {
   font-size: 13px;
-  font-weight: 500;
 }
 
-/* ─── The verify shield — deliberately three distinct states ────────────── */
+/* ─── Verify shield — three deliberately distinct states ────────────────── */
 
 .verify {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 500;
 }
 
 .verify svg {
@@ -212,68 +217,81 @@ body {
   flex: none;
 }
 
-/* ENFORCED: filled. The only state that earns a solid shield. */
 .verify.enforced {
-  color: var(--q-ok);
+  color: var(--green);
 }
-/* UNSUPPORTED: outline only. Correct and expected with the current mock —
-   never a green check, never a red alarm. A neutral fact about the device. */
+/* Correct and expected with the current firmware. Never a tick, never an alarm. */
 .verify.unsupported {
-  color: var(--ink-soft);
+  color: var(--muted);
 }
-/* UNKNOWN: no device has ever reported. Honest, rather than reassuring. */
+/* No device has ever reported. Must stay READABLE — an honest "we do not know"
+   is useless if an operator cannot see it. The empty shield and the word carry
+   the distinction from "not active", not a drop in contrast. */
 .verify.unknown {
-  color: var(--ink-faint);
+  color: var(--muted);
+  opacity: 0.8;
 }
-
-/* ─── Dot indicators ────────────────────────────────────────────────────── */
 
 .dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
   display: inline-block;
-  margin-right: 6px;
+  margin-right: 7px;
   vertical-align: middle;
 }
 .dot.on {
-  background: var(--q-ok);
+  background: var(--green);
+  box-shadow: 0 0 6px rgba(127, 212, 138, 0.6);
 }
 .dot.off {
-  background: var(--q-fail);
+  background: var(--red);
 }
 .dot.never {
   background: transparent;
-  border: 1.5px dashed var(--q-none);
+  border: 1.5px dashed var(--track);
 }
 
-/* ─── Section headings ──────────────────────────────────────────────────── */
+/* ─── Section heading — labelled divider ────────────────────────────────── */
 
 .h {
   display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin: 0 0 14px;
+  align-items: center;
+  gap: 14px;
+  margin: 0 0 16px;
 }
 
 .h h1 {
-  font-size: 19px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--green);
   margin: 0;
+  white-space: nowrap;
 }
 
 .h .sub {
-  font-size: 12px;
-  color: var(--ink-faint);
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* ─── Sensor grid ───────────────────────────────────────────────────────── */
+.h::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ─── Cards ─────────────────────────────────────────────────────────────── */
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(268px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: 14px;
 }
 
 .card {
@@ -284,15 +302,12 @@ body {
   flex-direction: column;
 }
 
-/* Cards in a row stretch to the tallest. Pushing the readings block to the
-   bottom keeps every value on one horizontal scan line, so a caveat note on one
-   panel does not knock its neighbours out of alignment. */
 .card .readings {
   margin-top: auto;
 }
 
 .card-head {
-  padding: 10px 14px 8px;
+  padding: 11px 14px 9px;
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -301,31 +316,34 @@ body {
 
 .card-head .label {
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  font-family: var(--sans);
 }
 
 .card-head .unit {
-  font-size: 11px;
-  color: var(--ink-faint);
-  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--muted);
 }
 
 .card-note {
-  padding: 0 14px 8px;
-  font-size: 10.5px;
-  color: var(--ink-faint);
-  line-height: 1.4;
+  padding: 0 14px 9px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.5;
 }
 
-/* A caveat that changes how a number should be read is not a footnote. */
+/* A caveat that changes how a number should be READ is not a footnote. */
 .card-note.loud {
-  color: var(--q-stale);
-  font-weight: 500;
+  color: var(--amber);
 }
+
+/* ─── Readings — inner panels ───────────────────────────────────────────── */
 
 .readings {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding: 0 10px 10px;
 }
 
 .readings.single {
@@ -333,57 +351,48 @@ body {
 }
 
 .reading {
-  padding: 8px 14px 12px;
-  border-top: 1px solid var(--line);
-}
-
-.reading + .reading {
-  border-left: 1px solid var(--line);
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 9px 11px 10px;
 }
 
 .reading .place {
-  font-size: 10px;
-  letter-spacing: 0.09em;
+  font-size: 9px;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--ink-faint);
-  margin-bottom: 3px;
+  color: var(--muted);
+  margin-bottom: 4px;
 }
 
 .reading .val {
   font-size: 25px;
   font-weight: 500;
-  letter-spacing: -0.02em;
   line-height: 1.1;
+  color: var(--text);
 }
 
 .reading .val.none {
-  color: var(--ink-faint);
+  color: var(--muted);
+  opacity: 0.55;
 }
 
-/* ─── SIGNATURE: the quality rule ───────────────────────────────────────────
-   Under every reading. Pattern carries the meaning; colour reinforces it. */
+/* ─── SIGNATURE: the quality rule ─────────────────────────────────────────
+   Under every reading. Pattern carries meaning; colour reinforces it. */
 
 .qrule {
   height: 3px;
-  margin-top: 7px;
+  margin-top: 8px;
   border-radius: 2px;
 }
 .qrule.ok {
   background: var(--q-ok);
 }
 .qrule.stale {
-  background: repeating-linear-gradient(
-    90deg,
-    var(--q-stale) 0 5px,
-    transparent 5px 9px
-  );
+  background: repeating-linear-gradient(90deg, var(--q-stale) 0 5px, transparent 5px 9px);
 }
 .qrule.fail {
-  background: repeating-linear-gradient(
-    -45deg,
-    var(--q-fail) 0 3px,
-    transparent 3px 6px
-  );
+  background: repeating-linear-gradient(-45deg, var(--q-fail) 0 3px, transparent 3px 6px);
 }
 .qrule.init {
   background: repeating-linear-gradient(90deg, var(--q-init) 0 2px, transparent 2px 6px);
@@ -398,12 +407,11 @@ body {
   align-items: baseline;
   gap: 8px;
   margin-top: 5px;
-  font-size: 10px;
-  font-family: var(--mono);
+  font-size: 9.5px;
 }
 
 .qflag {
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   font-weight: 600;
 }
 .qflag.ok {
@@ -423,58 +431,917 @@ body {
 }
 
 .qage {
-  color: var(--ink-faint);
+  color: var(--muted);
 }
 
-/* ─── Empty states — designed, not an afterthought ──────────────────────── */
+/* ─── Empty states ──────────────────────────────────────────────────────── */
 
 .emptystate {
   background: var(--panel);
-  border: 1px dashed var(--line-strong);
+  border: 1px dashed var(--line);
   border-radius: var(--r);
   padding: 30px 26px;
-  max-width: 620px;
+  max-width: 640px;
 }
 
 .emptystate h2 {
+  font-family: var(--sans);
   font-size: 15px;
-  font-weight: 500;
-  margin: 0 0 7px;
+  font-weight: 600;
+  margin: 0 0 8px;
 }
 
 .emptystate p {
   margin: 0 0 5px;
-  font-size: 13px;
-  color: var(--ink-soft);
-  line-height: 1.55;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .emptystate ol {
   margin: 10px 0 0;
   padding-left: 18px;
-  font-size: 13px;
-  color: var(--ink-soft);
-  line-height: 1.7;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.8;
 }
 
 .emptystate code {
-  font-family: var(--mono);
   font-size: 12px;
-  background: var(--panel-sunk);
+  background: var(--panel-2);
   border: 1px solid var(--line);
-  padding: 1px 4px;
+  padding: 1px 5px;
   border-radius: 2px;
+  color: var(--green);
 }
 
 .banner {
-  background: var(--accent-soft);
-  border: 1px solid #f2c6dd;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--amber);
   border-radius: var(--r);
   padding: 11px 14px;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 16px;
+  line-height: 1.6;
+}
+
+.banner b {
+  color: var(--text);
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0;
+}
+
+/* ─── Expandable panels and history ─────────────────────────────────────── */
+
+.card-head.as-toggle {
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+}
+
+.card-head.as-toggle:hover {
+  background: var(--panel-2);
+}
+
+.head-right {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.chev {
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.12s ease;
+  display: inline-block;
+}
+
+.chev.up {
+  transform: rotate(180deg);
+}
+
+.card.open {
+  grid-column: 1 / -1;
+}
+
+.expand {
+  border-top: 1px solid var(--line);
+  padding: 12px 14px 14px;
+}
+
+.whichrow {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.hist-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.hist-title {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ranges {
+  display: flex;
+  gap: 3px;
+}
+
+.rbtn {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.rbtn:hover {
+  border-color: var(--green-dim);
+  color: var(--text);
+}
+
+.rbtn.on {
+  background: var(--green-dim);
+  border-color: var(--green-dim);
+  color: var(--text);
+}
+
+.hist-empty {
+  padding: 28px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.hist-foot {
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+.ctip {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 7px 10px;
+}
+
+.ctip-t {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ctip-v {
+  font-size: 15px;
+  font-weight: 500;
+  margin-top: 1px;
+  color: var(--text);
+}
+
+.ctip-r {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.ctip-q {
+  display: flex;
+  gap: 8px;
+  margin-top: 5px;
+  font-size: 9.5px;
+}
+
+/* ─── Actuators ─────────────────────────────────────────────────────────── */
+
+.grid-2 {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.arows {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.arow {
+  display: grid;
+  grid-template-columns: 1fr 46px auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+/* An overridden actuator is not under autonomous control — the distinction is
+   the reason src is shown at all, so it gets a structural marker. */
+.arow.overridden {
+  border-color: var(--amber);
+  box-shadow: inset 2px 0 0 var(--amber);
+}
+
+.arow-name {
   font-size: 12.5px;
-  color: #7d1450;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+/* Pill lamp, echoing a relay toggle on a control panel. */
+.lamp {
+  width: 22px;
+  height: 11px;
+  border-radius: 6px;
+  flex: none;
+  background: var(--track);
+  border: 1px solid var(--line);
+  position: relative;
+}
+
+.lamp::after {
+  content: '';
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.lamp.on {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+.lamp.on::after {
+  background: var(--green);
+  transform: translateX(9px);
+  box-shadow: 0 0 5px rgba(127, 212, 138, 0.7);
+}
+
+.lamp.unknown {
+  border-style: dashed;
+}
+.lamp.unknown::after {
+  background: var(--track);
+}
+
+.arow-state {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.arow-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.src {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.src-manual {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+/* The firmware envelope refused what it was told. Loudest of the three. */
+.src-safety {
+  border-color: var(--red);
+  color: var(--red);
+  font-weight: 600;
+}
+
+.dur {
+  font-size: 9.5px;
+  color: var(--muted);
+}
+
+.ovr {
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--amber);
+  white-space: nowrap;
+}
+
+/* ─── Ventilation ───────────────────────────────────────────────────────── */
+
+.vent-body {
+  padding: 2px 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.vent-val {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.vent-steps {
+  display: flex;
+  gap: 4px;
+  flex: 1;
+}
+
+.vent-step {
+  height: 9px;
+  flex: 1;
+  background: var(--track);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+}
+.vent-step.lit {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+
+/* ─── Canopy ────────────────────────────────────────────────────────────── */
+
+.canopy-body {
+  padding: 2px 14px 8px;
+  margin-top: auto;
+}
+
+.canopy-val {
+  font-size: 30px;
+  font-weight: 500;
+  line-height: 1;
+  margin-bottom: 10px;
+}
+
+.canopy-track {
+  height: 9px;
+  background: var(--track);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.canopy-fill {
+  height: 100%;
+  background: var(--green-dim);
+  border-right: 2px solid var(--amber);
+}
+
+.canopy-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-top: 5px;
+}
+
+.canopy-foot {
+  padding: 0 14px 12px;
+}
+
+/* ─── Forms ─────────────────────────────────────────────────────────────── */
+
+.cmd-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(172px, 1fr));
+  gap: 12px;
+  padding: 2px 14px 12px;
+}
+
+.cmd-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.cmd-grid span {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.cmd-grid select,
+.cmd-grid input {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.cmd-grid select:focus,
+.cmd-grid input:focus {
+  border-color: var(--green-dim);
+}
+
+.cmd-foot {
+  padding: 0 14px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 16px;
+  border: 1px solid var(--green-dim);
+  background: var(--green-dim);
+  color: var(--text);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--green);
+  color: var(--green);
+}
+
+.btn:disabled {
+  background: var(--track);
+  border-color: var(--line);
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.btn.sm {
+  font-size: 11.5px;
+  padding: 5px 12px;
+}
+
+.btn.ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--line);
+}
+.btn.ghost:hover:not(:disabled) {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--muted);
+}
+
+.cmd-cap {
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.cmd-result {
+  margin: 0 14px 14px;
+  padding: 9px 12px;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  border: 1px solid var(--line);
+  background: var(--panel-2);
+}
+.cmd-result.ok {
+  border-left: 2px solid var(--green);
+  color: var(--text);
+}
+.cmd-result.bad {
+  border-left: 2px solid var(--red);
+  color: var(--text);
+}
+
+/* ─── Configuration ─────────────────────────────────────────────────────── */
+
+.cfg-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  gap: 14px;
+  align-items: start;
+}
+
+.cfgblock {
   margin-bottom: 14px;
+}
+
+.fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(194px, 1fr));
+  gap: 12px;
+  padding: 2px 14px 14px;
+}
+
+.field-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 5px;
+}
+
+.field label {
+  font-size: 11.5px;
+  color: var(--text);
+}
+
+.field-unit {
+  font-size: 9.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 12.5px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.field input:focus,
+.field select:focus {
+  border-color: var(--green-dim);
+}
+
+.field input::placeholder {
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.field.has-error input,
+.field.has-error select {
+  border-color: var(--red);
+}
+
+.field-help {
+  font-size: 10px;
+  color: var(--muted);
   line-height: 1.5;
+  margin-top: 5px;
+}
+
+/* A value nobody has supplied yet is a real state and must not look like zero. */
+.field-unset {
+  font-size: 9.5px;
+  color: var(--amber);
+  margin-top: 5px;
+}
+
+.field-error {
+  font-size: 10px;
+  color: var(--red);
+  margin-top: 5px;
+  line-height: 1.5;
+}
+
+.triple {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+/* ─── Version list ──────────────────────────────────────────────────────── */
+
+.plist {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.prow {
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.prow:hover {
+  border-color: var(--green-dim);
+}
+
+.prow.sel {
+  cursor: default;
+  border-color: var(--green-dim);
+}
+
+.prow.active {
+  box-shadow: inset 2px 0 0 var(--green);
+}
+
+.prow-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.prow-name {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.prow-warn {
+  font-size: 10px;
+  color: var(--amber);
+  margin-top: 4px;
+}
+
+.pstatus {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pstatus.s-ACTIVE {
+  border-color: var(--green);
+  color: var(--green);
+  font-weight: 600;
+}
+.pstatus.s-APPROVED {
+  border-color: var(--green-dim);
+  color: var(--green);
+}
+.pstatus.s-REJECTED,
+.pstatus.s-EXPIRED {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.prow-detail {
+  margin-top: 11px;
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+
+.prow-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 11px;
+}
+
+/* The placeholder approval must never read as a real one. */
+.stubnote {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--amber);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--amber);
+  line-height: 1.6;
+}
+
+/* ─── Lifecycle stepper ─────────────────────────────────────────────────── */
+
+.lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin-bottom: 11px;
+}
+
+.lstep {
+  font-size: 9px;
+  padding: 3px 7px;
+  border-radius: 2px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  opacity: 0.6;
+  white-space: nowrap;
+}
+
+.lstep.done {
+  color: var(--muted);
+  opacity: 1;
+  border-color: var(--green-dim);
+}
+
+.lstep.now {
+  opacity: 1;
+  background: var(--green-dim);
+  border-color: var(--green);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lstep.terminal.now {
+  background: transparent;
+  border-color: var(--red);
+  color: var(--red);
+}
+
+/* ─── Diff table ────────────────────────────────────────────────────────── */
+
+.diff {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10.5px;
+}
+
+.diff th {
+  text-align: left;
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 4px 5px;
+  border-bottom: 1px solid var(--line);
+}
+
+.diff td {
+  padding: 5px;
+  border-bottom: 1px dotted var(--line);
+  vertical-align: top;
+}
+
+.diff .was {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.diff .now {
+  color: var(--green);
+}
+
+/* ─── Activity feed — log rows ──────────────────────────────────────────── */
+
+.feed {
+  padding: 2px 14px 12px;
+}
+
+.fev {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 14px;
+  align-items: baseline;
+  padding: 8px 2px;
+  /* Dotted rules, the way a printed log listing separates its lines. */
+  border-bottom: 1px dotted var(--line);
+}
+
+.fev:last-child {
+  border-bottom: none;
+}
+
+.fev.warn .ftext {
+  color: var(--amber);
+}
+
+.fsrc {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  text-align: center;
+}
+
+/* Two streams, separable at a glance: the server acted, or the controller
+   reported. Confusing them would misattribute cause. */
+.fsrc-server {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.fsrc-edge {
+  border-color: var(--green-dim);
+  color: var(--green);
+}
+
+.ftext {
+  font-size: 12.5px;
+}
+
+.fnote {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+
+.factor {
+  font-size: 9.5px;
+  color: var(--muted);
+  opacity: 0.7;
+  margin-top: 3px;
+}
+
+.ftime {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ─── Camera placeholder ────────────────────────────────────────────────── */
+
+.camgrid {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: 14px;
+  max-width: 920px;
+}
+
+.camslot {
+  border: 1px dashed var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  aspect-ratio: 4 / 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.camslot:not(.main) {
+  aspect-ratio: 16 / 9;
+}
+
+.camslot-in {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.camslot-in b {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.camslot-in span {
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* ─── Responsive ────────────────────────────────────────────────────────── */
+
+@media (max-width: 1000px) {
+  .cfg-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 800px) {
+  .camgrid {
+    grid-template-columns: 1fr;
+  }
+  .fev {
+    grid-template-columns: 80px 1fr;
+  }
+  .ftime {
+    grid-column: 2;
+  }
 }
 
 @media (max-width: 720px) {
@@ -495,7 +1362,7 @@ body {
   }
   .nav a.active {
     border-left-color: transparent;
-    border-bottom-color: var(--accent);
+    border-bottom-color: var(--green);
   }
   .nav-note {
     display: none;
@@ -510,820 +1377,4 @@ body {
     animation: none !important;
     transition: none !important;
   }
-}
-
-/* ─── Actuators ─────────────────────────────────────────────────────────── */
-
-.grid-2 {
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.arows {
-  border-top: 1px solid var(--line);
-}
-
-.arow {
-  display: grid;
-  grid-template-columns: 1fr 52px auto auto;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.arow:last-child {
-  border-bottom: none;
-}
-
-/* An overridden actuator is not under autonomous control. That distinction is
-   the whole point of showing src, so it gets a structural marker rather than
-   only a badge tucked at the end of the row. */
-.arow.overridden {
-  background: var(--accent-soft);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-
-.arow-name {
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.lamp {
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  flex: none;
-}
-.lamp.on {
-  background: var(--q-ok);
-}
-.lamp.off {
-  background: var(--line-strong);
-}
-.lamp.unknown {
-  background: transparent;
-  border: 1.5px dashed var(--q-none);
-}
-
-.arow-state {
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  color: var(--ink-soft);
-}
-
-.arow-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.src {
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 2px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink-soft);
-  white-space: nowrap;
-}
-.src-manual {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-/* The firmware envelope refused what it was told. Loudest of the three. */
-.src-safety {
-  border-color: var(--q-fail);
-  color: var(--q-fail);
-  font-weight: 600;
-}
-
-.dur {
-  font-size: 10px;
-  color: var(--ink-faint);
-}
-
-.ovr {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--accent);
-  white-space: nowrap;
-}
-
-/* ─── Ventilation ───────────────────────────────────────────────────────── */
-
-.vent-body {
-  padding: 4px 14px 14px;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-top: auto;
-}
-
-.vent-val {
-  font-size: 30px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
-}
-
-.vent-steps {
-  display: flex;
-  gap: 4px;
-  flex: 1;
-}
-
-.vent-step {
-  height: 8px;
-  flex: 1;
-  background: var(--panel-sunk);
-  border: 1px solid var(--line);
-  border-radius: 2px;
-}
-.vent-step.lit {
-  background: var(--q-ok);
-  border-color: var(--q-ok);
-}
-
-/* ─── Canopy ────────────────────────────────────────────────────────────── */
-
-.canopy-body {
-  padding: 4px 14px 8px;
-  margin-top: auto;
-}
-
-.canopy-val {
-  font-size: 30px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: -0.02em;
-  margin-bottom: 9px;
-}
-
-.canopy-track {
-  height: 9px;
-  background: var(--panel-sunk);
-  border: 1px solid var(--line);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.canopy-fill {
-  height: 100%;
-  background: var(--accent);
-}
-
-.canopy-ends {
-  display: flex;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--ink-faint);
-  margin-top: 4px;
-}
-
-.canopy-foot {
-  padding: 0 14px 12px;
-}
-
-/* ─── Command form ──────────────────────────────────────────────────────── */
-
-.cmd-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
-  gap: 11px;
-  padding: 4px 14px 12px;
-}
-
-.cmd-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.cmd-grid span {
-  font-size: 11px;
-  color: var(--ink-soft);
-}
-
-.cmd-grid select,
-.cmd-grid input {
-  font-family: var(--display);
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r);
-  background: var(--panel);
-  color: var(--ink);
-}
-
-.cmd-grid input {
-  font-family: var(--mono);
-}
-
-.cmd-foot {
-  padding: 0 14px 14px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.btn {
-  font-family: var(--display);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 15px;
-  border: 1px solid var(--accent);
-  background: var(--accent);
-  color: #fff;
-  border-radius: var(--r);
-  cursor: pointer;
-}
-
-.btn:hover:not(:disabled) {
-  background: #a91d6a;
-  border-color: #a91d6a;
-}
-
-.btn:disabled {
-  background: var(--line-strong);
-  border-color: var(--line-strong);
-  cursor: not-allowed;
-}
-
-.cmd-cap {
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-.cmd-result {
-  margin: 0 14px 14px;
-  padding: 9px 11px;
-  border-radius: var(--r);
-  font-size: 12.5px;
-  line-height: 1.5;
-}
-.cmd-result.ok {
-  background: #eaf5ef;
-  border: 1px solid #bfdfcd;
-  color: #145133;
-}
-.cmd-result.bad {
-  background: #fdeceb;
-  border: 1px solid #f3c4c0;
-  color: #8a271d;
-}
-
-@media (max-width: 900px) {
-  .grid-2 {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ─── Configuration ─────────────────────────────────────────────────────── */
-
-.cfg-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 12px;
-  align-items: start;
-}
-
-.cfgblock {
-  margin-bottom: 12px;
-}
-
-.fields {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
-  gap: 12px;
-  padding: 4px 14px 14px;
-}
-
-.field-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-
-.field label {
-  font-size: 12px;
-  color: var(--ink);
-}
-
-.field-unit {
-  font-size: 10px;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-
-.field input,
-.field select {
-  width: 100%;
-  font-family: var(--mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 13px;
-  padding: 6px 8px;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r);
-  background: var(--panel);
-  color: var(--ink);
-}
-
-.field select {
-  font-family: var(--display);
-}
-
-.field.has-error input,
-.field.has-error select {
-  border-color: var(--q-fail);
-}
-
-.field-help {
-  font-size: 10.5px;
-  color: var(--ink-faint);
-  line-height: 1.45;
-  margin-top: 4px;
-}
-
-/* A value nobody has supplied yet is a real state, and must not look like
-   zero. Amber matches the STALE flag: present, but not usable as-is. */
-.field-unset {
-  font-size: 10px;
-  color: var(--q-stale);
-  margin-top: 4px;
-  font-weight: 500;
-}
-
-.field-error {
-  font-size: 10.5px;
-  color: var(--q-fail);
-  margin-top: 4px;
-  line-height: 1.45;
-}
-
-.triple {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 5px;
-}
-
-/* ─── Version list ──────────────────────────────────────────────────────── */
-
-.plist {
-  border-top: 1px solid var(--line);
-}
-
-.prow {
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
-}
-
-.prow:hover {
-  background: var(--panel-sunk);
-}
-
-.prow.sel {
-  background: var(--panel-sunk);
-  cursor: default;
-}
-
-.prow.active {
-  box-shadow: inset 2px 0 0 var(--q-ok);
-}
-
-.prow-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  gap: 8px;
-}
-
-.prow-name {
-  font-size: 11.5px;
-  color: var(--ink-soft);
-  margin-top: 2px;
-}
-
-.prow-warn {
-  font-size: 10.5px;
-  color: var(--q-stale);
-  margin-top: 3px;
-}
-
-.pstatus {
-  font-size: 10px;
-  letter-spacing: 0.05em;
-  padding: 1px 6px;
-  border-radius: 2px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink-soft);
-  white-space: nowrap;
-}
-.pstatus.s-ACTIVE {
-  border-color: var(--q-ok);
-  color: var(--q-ok);
-  font-weight: 600;
-}
-.pstatus.s-APPROVED {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.pstatus.s-REJECTED,
-.pstatus.s-EXPIRED {
-  border-color: var(--q-fail);
-  color: var(--q-fail);
-}
-
-.prow-detail {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
-}
-
-.prow-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 10px;
-}
-
-.btn.sm {
-  font-size: 12px;
-  padding: 5px 11px;
-}
-
-.btn.ghost {
-  background: transparent;
-  color: var(--ink-soft);
-  border-color: var(--line-strong);
-}
-.btn.ghost:hover:not(:disabled) {
-  background: var(--panel-sunk);
-  color: var(--ink);
-  border-color: var(--ink-faint);
-}
-
-/* The placeholder approval must never read as a real one. */
-.stubnote {
-  margin-top: 9px;
-  padding: 7px 9px;
-  background: #fff8e6;
-  border: 1px solid #eddda8;
-  border-radius: var(--r);
-  font-size: 10.5px;
-  color: #7a5a12;
-  line-height: 1.5;
-}
-
-/* ─── Lifecycle stepper ─────────────────────────────────────────────────── */
-
-.lifecycle {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
-  margin-bottom: 10px;
-}
-
-.lstep {
-  font-size: 9.5px;
-  letter-spacing: 0.03em;
-  padding: 2px 6px;
-  border-radius: 2px;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-
-.lstep.done {
-  color: var(--ink-soft);
-  border-color: var(--line-strong);
-}
-
-.lstep.now {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  font-weight: 600;
-}
-
-.lstep.terminal.now {
-  background: var(--q-fail);
-  border-color: var(--q-fail);
-}
-
-/* ─── Diff table ────────────────────────────────────────────────────────── */
-
-.diff {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-}
-
-.diff th {
-  text-align: left;
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--ink-faint);
-  font-weight: 500;
-  padding: 3px 5px;
-  border-bottom: 1px solid var(--line);
-}
-
-.diff td {
-  padding: 4px 5px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: top;
-}
-
-.diff .was {
-  color: var(--ink-faint);
-  text-decoration: line-through;
-}
-
-.diff .now {
-  color: var(--accent);
-  font-weight: 500;
-}
-
-.muted {
-  font-size: 12px;
-  color: var(--ink-faint);
-  margin: 0;
-}
-
-@media (max-width: 1000px) {
-  .cfg-cols {
-    grid-template-columns: 1fr;
-  }
-}
-
-/* ─── Activity feed ─────────────────────────────────────────────────────── */
-
-.feed {
-  border-top: 1px solid var(--line);
-}
-
-.fev {
-  display: grid;
-  grid-template-columns: 82px 1fr auto;
-  gap: 12px;
-  align-items: baseline;
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
-}
-
-.fev:last-child {
-  border-bottom: none;
-}
-
-.fev.warn {
-  background: #fffaf2;
-}
-
-.fsrc {
-  font-size: 9.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  padding: 2px 6px;
-  border-radius: 2px;
-  border: 1px solid var(--line-strong);
-  color: var(--ink-faint);
-  text-align: center;
-}
-
-/* Two streams, visually separable at a glance: the server acted, or the
-   controller reported. Confusing the two would misattribute cause. */
-.fsrc-server {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.fsrc-edge {
-  border-color: var(--q-ok);
-  color: var(--q-ok);
-}
-
-.ftext {
-  font-size: 13px;
-}
-
-.fnote {
-  font-size: 11px;
-  color: var(--ink-soft);
-  margin-top: 2px;
-  line-height: 1.45;
-}
-
-.factor {
-  font-size: 10px;
-  color: var(--ink-faint);
-  margin-top: 2px;
-}
-
-.ftime {
-  font-size: 10.5px;
-  color: var(--ink-faint);
-  white-space: nowrap;
-}
-
-/* ─── Camera placeholder ────────────────────────────────────────────────── */
-
-.camgrid {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: 12px;
-  max-width: 900px;
-}
-
-.camslot {
-  border: 1px dashed var(--line-strong);
-  border-radius: var(--r);
-  background: var(--panel);
-  aspect-ratio: 4 / 3;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.camslot:not(.main) {
-  aspect-ratio: 16 / 9;
-}
-
-.camslot-in {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.camslot-in b {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--ink-soft);
-}
-
-.camslot-in span {
-  font-size: 11px;
-  color: var(--ink-faint);
-}
-
-@media (max-width: 800px) {
-  .camgrid {
-    grid-template-columns: 1fr;
-  }
-  .fev {
-    grid-template-columns: 72px 1fr;
-  }
-  .ftime {
-    grid-column: 2;
-  }
-}
-
-/* ─── Expandable panels and history ─────────────────────────────────────── */
-
-.card-head.as-toggle {
-  width: 100%;
-  background: none;
-  border: none;
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
-  color: inherit;
-}
-
-.card-head.as-toggle:hover {
-  background: var(--panel-sunk);
-}
-
-.head-right {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-}
-
-.chev {
-  font-size: 10px;
-  color: var(--ink-faint);
-  transition: transform 0.12s ease;
-  display: inline-block;
-}
-
-.chev.up {
-  transform: rotate(180deg);
-}
-
-/* An open panel spans the grid, so a chart gets usable width without the
-   sibling panels being pushed out of view. */
-.card.open {
-  grid-column: 1 / -1;
-}
-
-.expand {
-  border-top: 1px solid var(--line);
-  padding: 10px 14px 12px;
-}
-
-.whichrow {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 9px;
-}
-
-.hist-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-  flex-wrap: wrap;
-}
-
-.hist-title {
-  font-size: 12px;
-  color: var(--ink-soft);
-}
-
-.ranges {
-  display: flex;
-  gap: 3px;
-}
-
-.rbtn {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  padding: 3px 8px;
-  border: 1px solid var(--line-strong);
-  background: var(--panel);
-  color: var(--ink-soft);
-  border-radius: 2px;
-  cursor: pointer;
-}
-
-.rbtn:hover {
-  border-color: var(--ink-faint);
-  color: var(--ink);
-}
-
-.rbtn.on {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-}
-
-.hist-empty {
-  padding: 26px 0;
-  text-align: center;
-  font-size: 12px;
-  color: var(--ink-faint);
-}
-
-.hist-foot {
-  font-size: 10px;
-  color: var(--ink-faint);
-  margin-top: 5px;
-}
-
-.ctip {
-  background: var(--panel);
-  border: 1px solid var(--line-strong);
-  border-radius: var(--r);
-  padding: 6px 9px;
-  box-shadow: 0 2px 8px rgba(18, 24, 31, 0.09);
-}
-
-.ctip-t {
-  font-size: 10px;
-  color: var(--ink-faint);
-}
-
-.ctip-v {
-  font-size: 15px;
-  font-weight: 500;
-  margin-top: 1px;
-}
-
-.ctip-r {
-  font-size: 10px;
-  color: var(--ink-faint);
-}
-
-.ctip-q {
-  display: flex;
-  gap: 7px;
-  margin-top: 4px;
-  font-family: var(--mono);
-  font-size: 9.5px;
 }
