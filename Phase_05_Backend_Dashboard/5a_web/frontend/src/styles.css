@@ -1588,3 +1588,216 @@ body {
   display: inline-block;
   cursor: pointer;
 }
+
+/* ─── Admin: users and keys ─────────────────────────────────────────────── */
+
+.ulist {
+  padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.urow {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.urow-main b {
+  font-size: 12.5px;
+}
+
+.uid {
+  font-size: 9.5px;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
+.uemail {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.urole {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
+/* Engineers are the only role that signs, so they read differently at a glance
+   from roles that merely operate or administer. */
+.urole.r-engineer {
+  border-color: var(--green-dim);
+  color: var(--green);
+}
+.urole.r-admin {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.ustatus {
+  font-size: 9.5px;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  margin-left: 5px;
+}
+
+.urow-key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 190px;
+  justify-content: flex-end;
+}
+
+.urow-key code {
+  font-size: 10px;
+  color: var(--green);
+}
+
+.nokey {
+  font-size: 10px;
+  color: var(--amber);
+}
+
+.rolenote {
+  margin: 0 14px 12px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--green-dim);
+  border-radius: 3px;
+  font-size: 10.5px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* A change that weakens the guarantee is amber, not neutral. */
+.rolenote.warn {
+  border-left-color: var(--amber);
+  color: var(--amber);
+}
+
+.invitelink {
+  margin: 0 14px 14px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--green-dim);
+  border-radius: 3px;
+}
+
+.invitelink b {
+  font-size: 11.5px;
+  display: block;
+  margin-bottom: 7px;
+  color: var(--green);
+}
+
+.invitelink code {
+  display: block;
+  font-size: 10.5px;
+  word-break: break-all;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  padding: 7px 8px;
+  line-height: 1.5;
+}
+
+/* ─── Approval standing ─────────────────────────────────────────────────── */
+
+.standing {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px 11px;
+  margin-bottom: 11px;
+}
+
+.standing.killed {
+  border-left: 2px solid var(--red);
+}
+
+.standing.killed b {
+  color: var(--red);
+  font-size: 11.5px;
+}
+
+.standing.killed p {
+  font-size: 10.5px;
+  margin: 5px 0 0;
+  line-height: 1.55;
+}
+
+.standing-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.standing-row b {
+  font-size: 12px;
+}
+
+.standing-row .muted {
+  font-size: 10.5px;
+}
+
+/* One pip per required signature — the tally is legible without reading the
+   numbers, which matters on a screen someone checks in passing. */
+.pips {
+  display: flex;
+  gap: 4px;
+  margin: 8px 0 0;
+}
+
+.pip {
+  height: 6px;
+  flex: 1;
+  max-width: 46px;
+  background: var(--track);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.pip.on {
+  background: var(--green-dim);
+  border-color: var(--green);
+}
+
+.signers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 9px;
+}
+
+.signer {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 2px;
+  border: 1px solid var(--green-dim);
+  color: var(--green);
+}
+
+.proposer-note {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.5;
+}

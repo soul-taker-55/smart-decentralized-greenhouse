@@ -243,6 +243,71 @@ function Lifecycle({ status }) {
   );
 }
 
+/**
+ * Approval standing.
+ *
+ * Shows the tally AND who produced it. A bare "1 of 2" leaves an engineer
+ * unable to tell whether they have already signed, or who to ask next — which
+ * is the practical question at that moment.
+ */
+function Standing({ standing, votes }) {
+  if (!standing) return null;
+
+  const rejected = votes?.find((v) => v.decision === 'reject');
+  if (rejected) {
+    return (
+      <div className="standing killed">
+        <b>Rejected by {rejected.username}</b>
+        {rejected.reason && <p>{rejected.reason}</p>}
+        <p className="muted">
+          One rejection ends a proposal. Clone it into a new version to try again.
+        </p>
+      </div>
+    );
+  }
+
+  const approvers = (votes ?? []).filter(
+    (v) => v.decision === 'approve' && v.user_id !== standing.proposer
+  );
+
+  return (
+    <div className="standing">
+      <div className="standing-row">
+        <b>
+          {standing.approvals} of {standing.thresholdM} signatures
+        </b>
+        {standing.satisfied ? (
+          <span className="pstatus s-APPROVED">threshold met</span>
+        ) : (
+          <span className="muted">{standing.remaining} more needed</span>
+        )}
+      </div>
+
+      <div className="pips">
+        {Array.from({ length: standing.thresholdM }).map((_, i) => (
+          <span key={i} className={`pip ${i < standing.approvals ? 'on' : ''}`} />
+        ))}
+      </div>
+
+      {approvers.length > 0 && (
+        <div className="signers">
+          {approvers.map((v) => (
+            <span key={v.key_id} className="signer" title={v.key_id}>
+              {v.username}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* The proposer is listed separately so it is obvious why their own
+          signature is absent, rather than looking like an oversight. */}
+      <div className="proposer-note">
+        Proposed by {standing.proposer} — a proposer cannot approve their own change.
+      </div>
+    </div>
+  );
+}
+
 /** Field-by-field diff. A text diff of the canonical JSON would be accurate and
     unreadable — canonical form sorts keys, so unrelated fields shuffle. */
 function Diff({ diff }) {
@@ -286,11 +351,16 @@ export default function ConfigPage() {
   const [msg, setMsg] = useState(null);
   const [selected, setSelected] = useState(null);
   const [diff, setDiff] = useState(null);
+  const [standing, setStanding] = useState(null);
 
   async function refresh() {
     const [{ data: p }, { data: a }] = await Promise.all([api.profiles(), api.activeConfig()]);
     setProfiles(p?.profiles ?? []);
     setActive(a?.active ?? null);
+    if (selected != null) {
+      const { data: s } = await api.standing(selected);
+      setStanding(s);
+    }
   }
 
   useEffect(() => {
@@ -308,8 +378,13 @@ export default function ConfigPage() {
   }, []);
 
   useEffect(() => {
-    if (selected == null) return setDiff(null);
+    if (selected == null) {
+      setDiff(null);
+      setStanding(null);
+      return;
+    }
     api.diff(selected).then(({ data }) => setDiff(data));
+    api.standing(selected).then(({ data }) => setStanding(data));
   }, [selected]);
 
   function change(block, field, v) {
@@ -475,6 +550,9 @@ export default function ConfigPage() {
                   {selected === p.id && (
                     <div className="prow-detail" onClick={(e) => e.stopPropagation()}>
                       <Lifecycle status={p.status} />
+                      {['PROPOSED', 'PARTIALLY_APPROVED', 'APPROVED', 'REJECTED'].includes(p.status) && (
+                        <Standing standing={standing?.standing} votes={standing?.votes} />
+                      )}
                       <Diff diff={diff} />
 
                       <div className="prow-actions">

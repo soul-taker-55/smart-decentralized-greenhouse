@@ -7,6 +7,7 @@ import ActuatorPanel from './components/ActuatorPanel.jsx';
 import ConfigPage from './components/ConfigPage.jsx';
 import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
 import { LoginPage, InvitePage, KeySetup } from './components/AuthPages.jsx';
+import AdminPage from './components/AdminPage.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -243,6 +244,7 @@ function Shell({ user, onSignOut }) {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/events" element={<ActivityRoute />} />
             <Route path="/camera" element={<CameraPage />} />
+            <Route path="/admin" element={<AdminPage />} />
             <Route
               path="/key"
               element={
