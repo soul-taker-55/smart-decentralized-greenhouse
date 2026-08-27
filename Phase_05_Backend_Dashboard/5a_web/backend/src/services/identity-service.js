@@ -473,6 +473,59 @@ export async function changeRole({ userId, toRole, reason, actor }) {
   });
 }
 
+/**
+ * Delete a farmer account.
+ *
+ * FARMERS ONLY. Confirmed before building this: server_events.actor_id and
+ * commands.issued_by carry NO foreign key to users.id — both are plain TEXT.
+ * A hard delete therefore does not fail loudly; it succeeds and leaves those
+ * columns holding an id that resolves to nothing. That is worse than a
+ * constraint violation, because the audit trail degrades silently from "this
+ * real account did this" to "some id that used to mean something did this."
+ *
+ * Engineers can never reach this function — see the role check below — because
+ * an engineer's public key is the thing a past approval's verifiability
+ * depends on, and no attribution argument changes that.
+ *
+ * A farmer holds no keypair. Nothing cryptographic depends on their row
+ * existing. But their past actor_id and issued_by references still do, so
+ * this is a SOFT delete: a flag, not a removal. The row, and therefore the
+ * attribution on anything they ever did, stays resolvable.
+ *
+ * The UI distinction from deactivate is deliberate. "Deactivated" is a state
+ * that may reasonably surface again — a suspended account is still, in a
+ * sense, an account. "Deleted" is final: the account disappears from every
+ * list except where actor_id attribution forces the row to be looked up.
+ */
+export async function deleteFarmer({ userId, reason, actor }) {
+  const target = await getUser(userId);
+  if (!target) throw new AuthError('no such user', 'no_user');
+  if (target.role !== 'farmer') {
+    throw new AuthError(
+      `only farmers can be deleted this way; ${userId} is a ${target.role}. ` +
+        `Engineers and admins hold credentials or authority that past records depend on — deactivate instead.`,
+      'wrong_role'
+    );
+  }
+  if (target.status === 'deleted') {
+    throw new AuthError('account is already deleted', 'no_change');
+  }
+
+  return transaction(async (client) => {
+    const updated = await client.query(
+      `UPDATE users SET status = 'deleted' WHERE id = $1 RETURNING *`,
+      [userId]
+    );
+    await client.query(
+      `INSERT INTO role_changes (user_id, from_role, to_role, changed_by, reason)
+       VALUES ($1, $2, $2, $3, $4)`,
+      [userId, target.role, actor?.id ?? null, `deleted: ${reason ?? 'no reason given'}`]
+    );
+    await client.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+    return rowToUser(updated.rows[0]);
+  });
+}
+
 /** Role and deactivation history for one account. */
 export async function roleHistory(userId) {
   const r = await query(
