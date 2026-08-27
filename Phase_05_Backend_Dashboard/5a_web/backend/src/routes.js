@@ -50,7 +50,7 @@ function errorResponse(reply, err) {
       bad_role: 400, bad_request: 400, no_user: 404, no_change: 409,
       // 409 rather than 403: the request is well-formed and the caller is
       // permitted — the system state simply forbids the outcome.
-      last_admin: 409, bad_email: 400,
+      last_admin: 409, bad_email: 400, wrong_role: 403,
     };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
@@ -756,6 +756,25 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
         reason: request.body?.reason ?? null,
         actor: getActor(request),
       });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /**
+   * Delete a farmer. FARMERS ONLY — the service layer refuses anyone else with
+   * a 403 naming why. Soft delete: see identity-service.deleteFarmer for the
+   * foreign-key finding that makes a hard delete the wrong choice here.
+   */
+  app.post('/api/users/:id/delete', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      return {
+        user: await identity.deleteFarmer({
+          userId: request.params.id,
+          reason: request.body?.reason ?? null,
+          actor: getActor(request),
+        }),
+      };
     } catch (err) {
       return errorResponse(reply, err);
     }

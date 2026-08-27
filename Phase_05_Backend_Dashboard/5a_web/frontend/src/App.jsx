@@ -272,7 +272,7 @@ function Shell({ user, onSignOut }) {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/events" element={<ActivityRoute />} />
             <Route path="/camera" element={<CameraPage />} />
-            <Route path="/admin" element={<AdminPage />} />
+            <Route path="/admin" element={<AdminPage currentUserId={user.id} />} />
             <Route
               path="/key"
               element={

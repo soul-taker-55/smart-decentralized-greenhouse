@@ -66,6 +66,10 @@ export const api = {
   // ── users (admin) ───────────────────────────────────────────────────────
   users: () => get('/api/users'),
   inviteUser: (email, username, role) => post('/api/users/invite', { email, username, role }),
+  deactivateUser: (id, reason) => post(`/api/users/${id}/deactivate`, { reason }),
+  reactivateUser: (id, reason) => post(`/api/users/${id}/reactivate`, { reason }),
+  deleteFarmer: (id, reason) => post(`/api/users/${id}/delete`, { reason }),
+  changeRole: (id, role, reason) => post(`/api/users/${id}/role`, { role, reason }),
 
   status: () => get('/api/status'),
   live: () => get('/api/state/live'),

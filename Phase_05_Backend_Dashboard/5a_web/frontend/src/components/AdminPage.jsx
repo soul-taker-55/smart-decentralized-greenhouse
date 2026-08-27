@@ -190,7 +190,7 @@ function ThresholdControl({ policy, engineerCount, onChanged }) {
   );
 }
 
-export default function AdminPage() {
+export default function AdminPage({ currentUserId }) {
   const [users, setUsers] = useState([]);
   const [keys, setKeys] = useState([]);
   const [policy, setPolicy] = useState(null);
@@ -216,6 +216,30 @@ export default function AdminPage() {
 
   const keyFor = (userId) => keys.find((k) => k.user_id === userId && k.status === 'active');
   const engineerCount = users.filter((u) => u.role === 'engineer' && u.status === 'active').length;
+  const activeAdmins = users.filter((u) => u.role === 'admin' && u.status === 'active').length;
+
+  const [confirmingAction, setConfirmingAction] = useState(null); // { userId, kind }
+  const [actionReason, setActionReason] = useState('');
+  const [actionError, setActionError] = useState(null);
+
+  async function runAction(userId, kind) {
+    setBusy(true);
+    setActionError(null);
+    const call = {
+      deactivate: () => api.deactivateUser(userId, actionReason),
+      reactivate: () => api.reactivateUser(userId, actionReason),
+      delete: () => api.deleteFarmer(userId, actionReason),
+    }[kind];
+    const { data, error } = await call();
+    setBusy(false);
+    if (error) {
+      setActionError(data?.message ?? error);
+      return;
+    }
+    setConfirmingAction(null);
+    setActionReason('');
+    refresh();
+  }
 
   return (
     <>
@@ -234,6 +258,9 @@ export default function AdminPage() {
             <div className="ulist">
               {users.map((u) => {
                 const key = keyFor(u.id);
+                const isSelf = u.id === currentUserId;
+                const isLastActiveAdmin = u.role === 'admin' && u.status === 'active' && activeAdmins <= 1;
+
                 return (
                   <div className="urow" key={u.id}>
                     <div className="urow-main">
@@ -246,6 +273,78 @@ export default function AdminPage() {
                       <span className={`urole r-${u.role}`}>{u.role}</span>
                       {u.status !== 'active' && <span className="ustatus">{u.status}</span>}
                     </div>
+
+                    {u.status !== 'deleted' && (
+                      <div className="urow-lifecycle">
+                        {confirmingAction?.userId === u.id ? (
+                          <div className="ulifeconfirm">
+                            <input
+                              placeholder="Reason (required)"
+                              value={actionReason}
+                              autoFocus
+                              onChange={(e) => setActionReason(e.target.value)}
+                            />
+                            <button
+                              className="btn sm danger"
+                              disabled={busy || !actionReason}
+                              onClick={() => runAction(u.id, confirmingAction.kind)}
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              className="btn ghost sm"
+                              onClick={() => {
+                                setConfirmingAction(null);
+                                setActionReason('');
+                                setActionError(null);
+                              }}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : u.status === 'suspended' ? (
+                          <button
+                            className="btn ghost sm"
+                            onClick={() => setConfirmingAction({ userId: u.id, kind: 'reactivate' })}
+                          >
+                            Reactivate
+                          </button>
+                        ) : (
+                          <div className="ulifebtns">
+                            {isSelf ? (
+                              <span className="muted" style={{ fontSize: 10 }}>
+                                this is you
+                              </span>
+                            ) : isLastActiveAdmin ? (
+                              <span className="muted" style={{ fontSize: 10 }}>
+                                last administrator
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  className="btn ghost sm"
+                                  onClick={() => setConfirmingAction({ userId: u.id, kind: 'deactivate' })}
+                                >
+                                  Deactivate
+                                </button>
+                                {/* Delete offered for farmers only — matches the
+                                    server's own refusal for any other role, since
+                                    an engineer's key and an admin's authority are
+                                    things past records depend on. */}
+                                {u.role === 'farmer' && (
+                                  <button
+                                    className="btn ghost sm danger-text"
+                                    onClick={() => setConfirmingAction({ userId: u.id, kind: 'delete' })}
+                                  >
+                                    Delete
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     <div className="urow-key">
                       {u.role !== 'engineer' ? (
@@ -274,6 +373,7 @@ export default function AdminPage() {
                 );
               })}
             </div>
+            {actionError && <div className="cmd-result bad" style={{ margin: '0 14px 12px' }}>{actionError}</div>}
           </div>
 
           <InviteForm onInvited={refresh} />

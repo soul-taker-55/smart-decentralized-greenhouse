@@ -1972,3 +1972,43 @@ body {
   color: var(--muted);
   line-height: 1.55;
 }
+
+/* ─── Account lifecycle controls ────────────────────────────────────────── */
+
+.urow-lifecycle {
+  display: flex;
+  align-items: center;
+}
+
+.ulifebtns {
+  display: flex;
+  gap: 6px;
+}
+
+.ulifeconfirm {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.ulifeconfirm input {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  min-width: 150px;
+}
+
+/* Text-only danger styling for an inline ghost button — a full filled danger
+   button here would compete visually with the emergency-stop control, which is
+   the one action that should read as unmistakably serious. */
+.btn.danger-text {
+  color: var(--red);
+  border-color: var(--red);
+}
+.btn.danger-text:hover:not(:disabled) {
+  background: rgba(224, 107, 107, 0.12);
+}
