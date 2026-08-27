@@ -68,6 +68,14 @@ services:
       MQTT_CLIENT_ID: sdigf-backend
 
       # ---------------------------------------------------------------------
+      # Bootstrap Configuration
+      # ---------------------------------------------------------------------
+      # admin email & password & username
+      # first time booting configuration
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME}
+      # ---------------------------------------------------------------------
       # Manual command ceiling
       # ---------------------------------------------------------------------
       # PROVISIONAL. A flat cap does not reflect that actuators have very
