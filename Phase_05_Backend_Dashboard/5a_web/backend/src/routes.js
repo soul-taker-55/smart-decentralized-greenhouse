@@ -45,7 +45,13 @@ function errorResponse(reply, err) {
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'AuthError') {
-    const status = { bad_invite: 409, invalid_credentials: 401, weak_password: 400, bad_role: 400, bad_request: 400 };
+    const status = {
+      bad_invite: 409, invalid_credentials: 401, weak_password: 400,
+      bad_role: 400, bad_request: 400, no_user: 404, no_change: 409,
+      // 409 rather than 403: the request is well-formed and the caller is
+      // permitted — the system state simply forbids the outcome.
+      last_admin: 409, bad_email: 400,
+    };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'ValidationError') {
@@ -708,6 +714,57 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
    * Only its hash is ever stored — this response is the sole moment it exists
    * outside the invitee's own link.
    */
+  /**
+   * Deactivate an account. There is deliberately no DELETE endpoint — see
+   * identity-service.deactivateUser for why removing a user would retroactively
+   * break the claim that past approvals cannot be forged.
+   */
+  app.post('/api/users/:id/deactivate', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      return {
+        user: await identity.deactivateUser({
+          userId: request.params.id,
+          reason: request.body?.reason ?? null,
+          actor: getActor(request),
+        }),
+      };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.post('/api/users/:id/reactivate', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      return {
+        user: await identity.reactivateUser({
+          userId: request.params.id,
+          reason: request.body?.reason ?? null,
+          actor: getActor(request),
+        }),
+      };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /** Change a role. Revokes the signing key when leaving the engineer role. */
+  app.post('/api/users/:id/role', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      return await identity.changeRole({
+        userId: request.params.id,
+        toRole: request.body?.role,
+        reason: request.body?.reason ?? null,
+        actor: getActor(request),
+      });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.get('/api/users/:id/history', { preHandler: requireCap(CAP.ADMIN) }, async (request) => ({
+    history: await identity.roleHistory(request.params.id),
+  }));
+
   app.post('/api/users/invite', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
     try {
       const { email, username, role } = request.body ?? {};

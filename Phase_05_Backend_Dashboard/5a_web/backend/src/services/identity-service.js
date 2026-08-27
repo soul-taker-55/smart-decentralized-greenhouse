@@ -153,12 +153,37 @@ export async function getUser(id) {
  *
  * @returns {{user, token, expiresAt}}
  */
+/**
+ * Deliberately permissive format check.
+ *
+ * Not RFC 5322 — that grammar accepts things no mail system routes and rejects
+ * things that work. This catches the actual failure mode, which is an empty
+ * field or a value that is plainly not an address.
+ *
+ * The address is NOT verified: nothing is sent to it and nothing confirms the
+ * recipient. It is therefore a label, not proof of identity, and the thesis
+ * should say so rather than let an unverified field imply a real-world binding.
+ */
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+
 export async function inviteUser({ email, username, role, actor }) {
   if (!['admin', 'engineer', 'farmer'].includes(role)) {
     throw new AuthError(`unknown role ${JSON.stringify(role)}`, 'bad_role');
   }
   if (!email || !username) {
     throw new AuthError('email and username are required', 'bad_request');
+  }
+  if (!EMAIL_RE.test(String(email).trim())) {
+    throw new AuthError(`"${email}" is not a valid email address`, 'bad_email');
+  }
+  if (!/^[a-zA-Z0-9._-]{2,32}$/.test(String(username).trim())) {
+    // The username appears in the audit trail, in down/cmd payloads, and
+    // eventually in a ledger someone has to read. Whitespace and punctuation
+    // there make records harder to parse and quote.
+    throw new AuthError(
+      'username must be 2–32 characters, letters, digits, dot, underscore or hyphen',
+      'bad_request'
+    );
   }
 
   // Prefix by role so the identifier is legible wherever it appears — in the
@@ -256,6 +281,208 @@ export async function redeemInvite({ token, password }) {
 
     return rowToUser(updated.rows[0]);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Deactivation and role changes
+// ---------------------------------------------------------------------------
+
+/**
+ * How many active administrators remain.
+ *
+ * Used to refuse the last one being removed. Without this guard an admin can
+ * deactivate or demote themselves and leave a system with no way to invite
+ * anyone, change a role, or reactivate anybody — recoverable only by editing
+ * the database directly, which is precisely the access the role system exists
+ * to make unnecessary.
+ */
+async function countActiveAdmins(excludingUserId = null) {
+  const r = await query(
+    `SELECT count(*)::int AS n FROM users
+     WHERE role = 'admin' AND status = 'active' AND ($1::text IS NULL OR id <> $1)`,
+    [excludingUserId]
+  );
+  return r.rows[0].n;
+}
+
+/**
+ * Deactivate an account. NEVER deletes it.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WHY THERE IS NO DELETE, AND WHY THERE NEVER WILL BE
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * Deleting an engineer would cascade to their signing key. Every configuration
+ * they ever approved would then reference a key that no longer exists, and
+ * those approvals would become unverifiable.
+ *
+ * That does not merely lose data — it retroactively breaks the central claim of
+ * this system, that a past approval cannot be forged. An approval nobody can
+ * check is indistinguishable from one that was never given. Removing a person
+ * would silently rewrite what the record can prove about the past.
+ *
+ * So: the row stays, the key stays, every historical event stays. What changes
+ * is that the account can no longer be used.
+ */
+export async function deactivateUser({ userId, reason, actor }) {
+  const target = await getUser(userId);
+  if (!target) throw new AuthError('no such user', 'no_user');
+  if (target.status === 'suspended') {
+    throw new AuthError('account is already deactivated', 'no_change');
+  }
+
+  // Last-admin lockout guard. Applies whether an admin is deactivating
+  // themselves or another admin — the outcome is identical either way.
+  if (target.role === 'admin' && (await countActiveAdmins(userId)) === 0) {
+    throw new AuthError(
+      'this is the last active administrator; deactivating it would leave nobody able to manage accounts',
+      'last_admin'
+    );
+  }
+
+  return transaction(async (client) => {
+    const updated = await client.query(
+      `UPDATE users SET status = 'suspended' WHERE id = $1 RETURNING *`,
+      [userId]
+    );
+
+    // Recorded as a role-class event: same table, same treatment, chained by
+    // Phase 07 alongside promotions and demotions. Who may act, and whether
+    // they may act at all, are the same category of fact.
+    await client.query(
+      `INSERT INTO role_changes (user_id, from_role, to_role, changed_by, reason)
+       VALUES ($1, $2, $2, $3, $4)`,
+      [userId, target.role, actor?.id ?? null, `deactivated: ${reason ?? 'no reason given'}`]
+    );
+
+    // Sessions end immediately. A suspended account holding a live session is
+    // not suspended.
+    await client.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+
+    return rowToUser(updated.rows[0]);
+  });
+}
+
+/** Reactivate a previously deactivated account. Same event treatment. */
+export async function reactivateUser({ userId, reason, actor }) {
+  const target = await getUser(userId);
+  if (!target) throw new AuthError('no such user', 'no_user');
+  if (target.status !== 'suspended') {
+    throw new AuthError('account is not deactivated', 'no_change');
+  }
+
+  return transaction(async (client) => {
+    const updated = await client.query(
+      `UPDATE users SET status = 'active' WHERE id = $1 RETURNING *`,
+      [userId]
+    );
+    await client.query(
+      `INSERT INTO role_changes (user_id, from_role, to_role, changed_by, reason)
+       VALUES ($1, $2, $2, $3, $4)`,
+      [userId, target.role, actor?.id ?? null, `reactivated: ${reason ?? 'no reason given'}`]
+    );
+    return rowToUser(updated.rows[0]);
+  });
+}
+
+/**
+ * Change a role, handling each transition's consequences explicitly.
+ *
+ * A role is not just a column. Each transition changes what the person can do
+ * and what credentials they should hold, and updating the column alone leaves
+ * the two out of step.
+ *
+ * ─── farmer → engineer ─────────────────────────────────────────────────────
+ * They now MAY approve, but hold no key — onboarding key generation is behind
+ * them. Nothing special happens here, and nothing needs to: approval is gated
+ * on a registered active key, not on the role, so castVote already refuses with
+ * `no_key` until they register one. The interface prompts them; the server does
+ * not have to trust that it did.
+ *
+ * ─── engineer → farmer ─────────────────────────────────────────────────────
+ * Future approvals stop, because the capability gate no longer grants
+ * CONFIG_APPROVE. Their key is REVOKED, since a farmer holding a signing key is
+ * an unused credential that still needs protecting.
+ *
+ * IN-FLIGHT PROPOSALS STAND. A proposal was legitimate when it was made, by
+ * someone who held the authority to make it. Retroactively voiding it would
+ * mean a role change could silently erase work that was properly authorised —
+ * and by the same logic that keeps revoked keys verifiable, what was true then
+ * stays true. Their existing SIGNATURES also stand, for the same reason.
+ *
+ * ─── anyone → admin ────────────────────────────────────────────────────────
+ * Admins hold no approval keys, by the separation-of-duties rule. Promoting an
+ * engineer therefore REVOKES their key. Otherwise the promotion would hand one
+ * person both account-creation authority and a live signing identity, which is
+ * the exact combination the separation exists to prevent.
+ */
+export async function changeRole({ userId, toRole, reason, actor }) {
+  if (!['admin', 'engineer', 'farmer'].includes(toRole)) {
+    throw new AuthError(`unknown role ${JSON.stringify(toRole)}`, 'bad_role');
+  }
+
+  const target = await getUser(userId);
+  if (!target) throw new AuthError('no such user', 'no_user');
+  if (target.role === toRole) throw new AuthError(`already a ${toRole}`, 'no_change');
+
+  // Demoting the last admin locks everyone out just as surely as deactivating
+  // them does.
+  if (target.role === 'admin' && toRole !== 'admin' && (await countActiveAdmins(userId)) === 0) {
+    throw new AuthError(
+      'this is the last active administrator; changing its role would leave nobody able to manage accounts',
+      'last_admin'
+    );
+  }
+
+  return transaction(async (client) => {
+    const updated = await client.query(
+      `UPDATE users SET role = $1 WHERE id = $2 RETURNING *`,
+      [toRole, userId]
+    );
+
+    // Leaving the engineer role means the signing key goes. Revoked, never
+    // deleted — past approvals must stay verifiable.
+    let revokedKey = null;
+    if (target.role === 'engineer' && toRole !== 'engineer') {
+      const r = await client.query(
+        `UPDATE user_keys
+         SET status = 'revoked', revoked_at = now(), revoked_by = $1,
+             revoke_reason = $2
+         WHERE user_id = $3 AND status = 'active'
+         RETURNING key_id`,
+        [
+          actor?.id ?? null,
+          `role changed from engineer to ${toRole}`,
+          userId,
+        ]
+      );
+      revokedKey = r.rows[0]?.key_id ?? null;
+    }
+
+    await client.query(
+      `INSERT INTO role_changes (user_id, from_role, to_role, changed_by, reason)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, target.role, toRole, actor?.id ?? null, reason ?? null]
+    );
+
+    // The capability set changed underneath them; existing sessions would carry
+    // the old assumptions in the interface until they signed out.
+    await client.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+
+    return { user: rowToUser(updated.rows[0]), revokedKey };
+  });
+}
+
+/** Role and deactivation history for one account. */
+export async function roleHistory(userId) {
+  const r = await query(
+    `SELECT rc.*, u.username AS changed_by_username
+     FROM role_changes rc
+     LEFT JOIN users u ON u.id = rc.changed_by
+     WHERE rc.user_id = $1 ORDER BY rc.created_at DESC`,
+    [userId]
+  );
+  return r.rows;
 }
 
 // ---------------------------------------------------------------------------
