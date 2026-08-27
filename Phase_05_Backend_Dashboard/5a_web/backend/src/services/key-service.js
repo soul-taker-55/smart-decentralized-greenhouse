@@ -161,11 +161,11 @@ export async function registerKey({ userId, publicKeyHex, actor }) {
 
     await client.query(
       `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-       VALUES ('gh1', 'CONFIG_CREATED', 'config_profiles', 0, $1, $2, $3)`,
+       VALUES ('gh1', 'KEY_REGISTERED', 'user_keys', 0, $1, $2, $3)`,
       [
         actor?.id ?? userId,
         actor?.role ?? 'engineer',
-        JSON.stringify({ kind: 'key_registered', keyId, userId }),
+        JSON.stringify({ keyId, userId }),
       ]
     );
 

@@ -84,13 +84,12 @@ export async function setPolicy({ thresholdM, proposalTtlHours, actor }) {
 
     await client.query(
       `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-       VALUES ($1, 'CONFIG_CREATED', 'config_profiles', 0, $2, $3, $4)`,
+       VALUES ($1, 'APPROVAL_POLICY_CHANGED', 'none', 0, $2, $3, $4)`,
       [
         config.ghId,
         actor?.id ?? null,
         actor?.role ?? null,
         JSON.stringify({
-          kind: 'approval_policy_changed',
           from: before.rows[0],
           to: { threshold_m: thresholdM, proposal_ttl_hours: proposalTtlHours },
           // Flagged explicitly so a reader of the audit trail does not have to

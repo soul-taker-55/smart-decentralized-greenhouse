@@ -29,12 +29,17 @@ import * as telemetry from './services/telemetry-service.js';
 import * as identity from './services/identity-service.js';
 import * as keyService from './services/key-service.js';
 import * as approval from './services/approval-service.js';
+import * as estop from './services/estop-service.js';
 import { config } from './config.js';
 import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
 import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
 
 /** Map service errors onto HTTP status codes. */
 function errorResponse(reply, err) {
+  if (err.name === 'EstopError') {
+    const status = { forbidden: 403, no_change: 409, reason_required: 400 };
+    return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
+  }
   if (err.name === 'KeyError' || err.name === 'ApprovalError') {
     const status = { not_found: 404, already_voted: 409, self_approval: 403, bad_state: 409, no_key: 400, wrong_role: 403, key_in_use: 409 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
@@ -260,6 +265,29 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
         actor: getActor(request),
       });
       return reply.code(201).send({ profile });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /**
+   * Clone any profile into a new DRAFT.
+   *
+   * Deliberately unfiltered by status: cloning bypasses no gate, because the
+   * clone still requires the full approval path. This is also HOW ROLLBACK
+   * WORKS — there is no re-activate path, because the device rejects an older
+   * `ver` as stale and cannot distinguish a legitimate rollback from a replay.
+   * Rolling back is a decision about the present, so it is approved as one.
+   */
+  app.post('/api/config/profiles/:id/clone', { preHandler: requireCap(CAP.CONFIG_PROPOSE) }, async (request, reply) => {
+    try {
+      const source = await configService.getProfile(Number(request.params.id));
+      const profile = await configService.createProfile(source.cfg, {
+        name: request.body?.name ?? `Clone of v${source.ver}`,
+        parentId: source.id,
+        actor: getActor(request),
+      });
+      return reply.code(201).send({ profile, clonedFrom: { id: source.id, ver: source.ver } });
     } catch (err) {
       return errorResponse(reply, err);
     }
@@ -513,6 +541,84 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   // This is the one place in the API gated by CAP.ADMIN rather than CAP.VIEW or
   // an operational capability, matching the settled matrix: admin manages
   // users, API configuration and server status, and nothing agronomic.
+
+  // ---------------------------------------------------------------------------
+  // Emergency stop
+  // ---------------------------------------------------------------------------
+  //
+  // Contract v4 §3.9. Authority is deliberately ASYMMETRIC: engineers and
+  // farmers may trigger, only engineers may clear. Anyone who can see a problem
+  // should be able to halt the greenhouse; deciding the problem is over is an
+  // engineering judgement, and the person who halted it because something
+  // looked wrong is not the right person to certify that it no longer is.
+  //
+  // Session-attributed, not signed. Requiring a signature would mean an
+  // engineer without their key on the device in front of them could not stop a
+  // greenhouse they can see is in trouble — the wrong failure mode. Stopping is
+  // cheap and reversible; approving a configuration is neither.
+
+  /**
+   * What the server asked for, and what the device reports.
+   *
+   * Two separate figures on purpose. Publish a stop while the controller is
+   * offline and the retained message sits unread — the greenhouse is still
+   * running. Showing one merged "stopped" would be the opposite of the truth
+   * at the moment it matters most.
+   */
+  app.get('/api/estop', { preHandler: requireCap(CAP.VIEW) }, async (_request, reply) => {
+    try {
+      const [server, edgeCfg] = await Promise.all([
+        estop.getServerEstop(),
+        telemetry.getEdgeConfigState().catch(() => null),
+      ]);
+      const live = publisher.getState().lastSeen;
+      return {
+        requested: server,
+        device: {
+          // Device-declared. The server never asserts a greenhouse is stopped.
+          active: live?.actuators?.estop ?? live?.health?.estop?.active ?? null,
+          seq: live?.health?.estop?.seq ?? null,
+          since: live?.health?.estop?.since ?? null,
+          reportedAt: edgeCfg?.reportedAt ?? null,
+        },
+        confirmed:
+          server.state === 'stopped' &&
+          (live?.actuators?.estop === true || live?.health?.estop?.active === true),
+      };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.post('/api/estop/trigger', { preHandler: requireCap(CAP.ESTOP_TRIGGER) }, async (request, reply) => {
+    try {
+      return await estop.setEstop({
+        state: 'stopped',
+        reason: request.body?.reason ?? null,
+        actor: getActor(request),
+        publisher,
+      });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.post('/api/estop/clear', { preHandler: requireCap(CAP.ESTOP_CLEAR) }, async (request, reply) => {
+    try {
+      return await estop.setEstop({
+        state: 'clear',
+        reason: request.body?.reason ?? null,
+        actor: getActor(request),
+        publisher,
+      });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  app.get('/api/estop/history', { preHandler: requireCap(CAP.VIEW) }, async () => ({
+    events: await estop.listEstopEvents({ limit: 20 }),
+  }));
 
   // ---------------------------------------------------------------------------
   // Signing keys

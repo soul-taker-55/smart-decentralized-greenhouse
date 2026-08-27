@@ -49,6 +49,9 @@ import { checkEnvelope, checkCommand } from './safety.js';
 export const REJECT = {
   PARSE: 'PARSE',
   SCHEMA: 'SCHEMA',
+  SEQ_STALE: 'SEQ_STALE',
+  GH_MISMATCH: 'GH_MISMATCH',
+  ESTOP: 'ESTOP',
   HASH_MISMATCH: 'HASH_MISMATCH',
   NOT_NEWER: 'NOT_NEWER',
   VER_STALE: 'VER_STALE',
@@ -185,6 +188,10 @@ export function handleConfig(raw, state, ghId) {
   }
 
   // ── 6. Apply, then acknowledge ────────────────────────────────────────────
+  //
+  // §3.9 rule 3: while stopped, a config is STORED but not acted on. Refusing
+  // it outright would mean a halted greenhouse could not be reconfigured before
+  // being restarted — which is exactly when reconfiguring is most likely.
   const cancelled = state.applyConfig({
     ver: signed.ver,
     hash: msg.cfg_hash,
@@ -198,6 +205,63 @@ export function handleConfig(raw, state, ghId) {
     applied: state.appliedRef(),
     reason: null,
     cancelledOverrides: cancelled,
+  };
+}
+
+/**
+ * Handle a down/estop message. Contract v4 §3.9.
+ *
+ * Persist BEFORE acknowledging. An ack claiming a stop that was not written to
+ * NVS would survive a power cut as a lie — the server would believe the
+ * greenhouse is halted and the hardware would come back running.
+ */
+export function handleEstop(raw, state, ghId) {
+  const text = raw.toString('utf8');
+  if (text.trim() === '') {
+    return { result: 'ignored', reason: { code: null, detail: 'retained estop cleared' } };
+  }
+
+  let msg;
+  try {
+    msg = JSON.parse(text);
+  } catch (err) {
+    return {
+      result: 'rejected',
+      estopSeq: null,
+      applied: { estop: state.estop.active },
+      reason: { code: REJECT.PARSE, field: null, detail: `not valid JSON: ${err.message}` },
+    };
+  }
+
+  const seq = msg.seq;
+  const reject = (code, field, detail) => ({
+    result: 'rejected',
+    estopSeq: seq ?? null,
+    applied: { estop: state.estop.active, seq: state.estop.seq },
+    reason: { code, field, detail },
+  });
+
+  if (msg.v !== SUPPORTED_SCHEMA_V) return reject(REJECT.SCHEMA, 'v', `unsupported schema ${msg.v}`);
+  if (msg.gh !== ghId) return reject(REJECT.GH_MISMATCH, 'gh', `addressed to ${msg.gh}, this device is ${ghId}`);
+  if (!Number.isInteger(seq)) return reject(REJECT.PARSE, 'seq', 'required, must be an integer');
+  if (!['stopped', 'clear'].includes(msg.state)) {
+    return reject(REJECT.PARSE, 'state', 'must be stopped or clear');
+  }
+
+  const outcome = state.setEstop({ seq, state: msg.state, reason: msg.reason, by: msg.by });
+
+  // A stale replay is IGNORED, not acked. Acking a redelivered retained message
+  // every reconnect would fill the audit trail with noise that looks like
+  // repeated emergencies.
+  if (!outcome.applied) {
+    return { result: 'ignored', estopSeq: seq, reason: { code: REJECT.SEQ_STALE, detail: outcome.ignored } };
+  }
+
+  return {
+    result: 'accepted',
+    estopSeq: seq,
+    applied: { estop: state.estop.active, seq: state.estop.seq },
+    reason: null,
   };
 }
 
@@ -226,6 +290,17 @@ export function handleCommand(raw, state) {
 
   if (cmd.v !== SUPPORTED_SCHEMA_V) {
     return reject(REJECT.SCHEMA, 'v', `unsupported schema version ${cmd.v}`, cmd.id ?? null);
+  }
+
+  // §3.9 rule 3: while stopped, down/cmd is ignored entirely. A halted
+  // greenhouse that still honoured manual commands would not be halted.
+  if (state.estop.active) {
+    return reject(
+      REJECT.ESTOP,
+      null,
+      'emergency stop is active; manual commands are refused until it is cleared',
+      cmd.id ?? null
+    );
   }
   if (!cmd.id) {
     // Without an id the server cannot correlate the ack, so the command becomes

@@ -48,7 +48,6 @@ sdigf/v1/gh1/status            ESP32 → server  (last will)
 sdigf/v1/gh1/down/config       server → ESP32
 sdigf/v1/gh1/down/cmd          server → ESP32
 sdigf/v1/gh1/down/keys         server → ESP32  (RESERVED — see §3.8)
-sdigf/v1/gh1/down/estop        server → ESP32  (see §3.9)
 ```
 
 **`v1` in the path.** When the contract changes, `v2` topics can run alongside `v1` during
@@ -73,7 +72,6 @@ Governing rule: **retain state, do not retain events.**
 | `status` | 1 | **yes** | A last will must be retained, or a late subscriber never learns the edge is down. |
 | `down/config` | 1 | **yes** | The reconnect design depends on this. See the retention caveat below. |
 | `down/cmd` | 1 | no | An event with a TTL. Retaining it would re-fire on every reconnect. |
-| `down/estop` | 1 | **yes** | State, not an event. A controller rebooting into a halted greenhouse must come back halted. |
 | `down/keys` | 1 | **yes** | Reserved. Current state — a device must receive the trusted key list on connect without the server detecting the reconnection. |
 
 > **⚠ Retention caveat — corrected 2026-08-25.** An earlier revision of this table claimed
@@ -661,161 +659,6 @@ decision to reserve this topic has to precede firmware flashing, not follow it.
 
 ---
 
-### 3.9 `down/estop` — QoS 1, **retained** — AMENDMENT 2026-08-26
-
-Emergency stop. Everything off, immediately, until an engineer clears it.
-
-#### Why this is not a `down/cmd`
-
-The obvious implementation is a command with `target: "all"`. It does not work,
-because **four of §3.7's eight reconciliation rules state the opposite of what an
-emergency stop requires**:
-
-| §3.7 says | An emergency stop needs |
-|---|---|
-| `target` is one actuator key | Global. No target. |
-| `ttl_s` required and bounded | Sticky. No expiry. |
-| Rule 2 — overrides auto-expire, control returns to `auto` | Must never auto-clear |
-| Rule 5 — overrides do not survive reboot | **Must** survive reboot |
-| Rule 7 — a newly approved config cancels overrides | A new config must **not** clear it |
-
-A stop that expires after `ttl_s`, or that a routine configuration change
-silently cancels, is worse than no stop at all: it would appear present while
-having quietly stopped being so.
-
-#### Why retained, when `down/cmd` is not
-
-`down/cmd` is not retained because a command is an **event** — retaining it would
-re-fire a pump switch-on after every power cut.
-
-An emergency stop is **state**, exactly like configuration. A controller that
-reboots into a greenhouse someone has halted must come back halted. Retention is
-what makes that true without the server having to detect the reconnection, which
-is the same argument that puts `down/config` on a retained topic.
-
-That is the dividing line in this contract, and it is worth stating plainly:
-**events are not retained, state is.**
-
-#### Payload
-
-```json
-{
-  "v": 1,
-  "ts": 1735689600,
-  "gh": "gh1",
-  "seq": 7,
-  "state": "stopped",
-  "by": { "user": "eng-a1b2c3d4", "role": "engineer" },
-  "reason": "water on the floor near the pump"
-}
-```
-
-| Field | Type | Notes |
-|---|---|---|
-| `v` | int | Schema version. |
-| `ts` | int | Server epoch seconds. |
-| `gh` | string | Greenhouse id. Rejected if it does not match. |
-| `seq` | int | **Monotonic.** The replay defence — see below. |
-| `state` | string | `stopped` or `clear`. |
-| `by` | object | Who acted. Session-attributed, not signed — see below. |
-| `reason` | string\|null | Free text. Optional on stop, expected on clear. |
-
-#### `seq` is monotonic, and that is the whole replay defence
-
-A retained message is redelivered on every reconnect. Without a monotonic
-counter the device cannot distinguish "the operator has cleared the stop" from
-"the broker is replaying an old clear message", and the second would silently
-unhalt a greenhouse someone deliberately stopped.
-
-The device stores the highest `seq` it has seen, in NVS, alongside the state. A
-message with `seq` less than or equal to the stored value is **ignored, not
-acked** — the same rule `down/config` applies to `ver`, for the same reason.
-
-#### Device behaviour — normative
-
-1. On `state: "stopped"`, **all actuators de-energise immediately.** Relays are
-   active-LOW and wired COM+NO, so the safe state is also the unpowered state.
-   The canopy is commanded to its current position and the servo detached; it is
-   not driven anywhere, because moving a mechanism during an emergency is not
-   obviously safer than leaving it.
-2. The stop is written to NVS **before** the acknowledgement is published. An
-   ack claiming a stop that was not persisted would survive a power cut as a
-   lie.
-3. While stopped, the device **ignores** `down/cmd` entirely and **accepts but
-   does not act on** `down/config`. A new configuration is stored as
-   last-known-good and applied only when the stop is cleared. Refusing config
-   outright would mean a halted greenhouse could not be reconfigured before
-   being restarted, which is precisely when reconfiguring is likely.
-4. `state: "clear"` returns the device to autonomous control under its stored
-   configuration. All manual overrides remain cancelled — clearing a stop
-   resumes automation, it does not restore whatever was running before it.
-5. The stop survives reboot, broker loss, and server loss. **Nothing except an
-   explicit higher-`seq` clear releases it.**
-
-#### Reporting
-
-The stop appears in two places, because the two answer different questions.
-
-`up/health` — does the device consider itself halted, right now:
-
-```json
-"estop": { "active": true, "seq": 7, "since": 1735689600 }
-```
-
-`up/actuators` — is what you are looking at the result of a halt:
-
-```json
-"estop": true
-```
-
-Both are **device-declared**. The server never asserts that a greenhouse is
-stopped; it asserts only that it asked. The distinction matters when a stop is
-published and the device is offline — the dashboard must show *requested but
-unconfirmed*, not *stopped*.
-
-#### Acknowledgement
-
-Acked on `up/ack` with `ref: { "estop_seq": 7 }` and the usual `result`.
-`applied` reports the stop state actually in force.
-
-A rejection carries `SEQ_STALE` (not newer), `GH_MISMATCH`, or `PARSE`.
-
-#### Authority
-
-Triggering and clearing are **not** symmetrical, and deliberately so.
-
-| | Trigger | Clear |
-|---|---|---|
-| Engineer | yes | yes |
-| Farmer | yes | **no** |
-| Admin | no | no |
-
-Anyone who can see a problem should be able to stop the greenhouse. Deciding
-that the problem is over is an engineering judgement, and a farmer who halted a
-system because something looked wrong is not the right person to certify that it
-no longer is.
-
-Admin is excluded from both, consistent with their exclusion from all
-operational authority.
-
-#### Not signed, and why
-
-Emergency stop is **session-attributed**, not cryptographically signed.
-
-Requiring a signature would mean an engineer without their signing key on the
-device in front of them could not halt a greenhouse they can see is in trouble.
-That is the wrong failure mode. The asymmetry is deliberate: **stopping is
-cheap and reversible, and its failure mode is a halted greenhouse; approving a
-configuration is neither.**
-
-The consequence must be stated honestly in the thesis: a compromised session can
-halt the greenhouse. It cannot start anything, cannot change a configuration,
-and cannot clear its own stop unless it belongs to an engineer. Denial of
-service is the accepted exposure, and it is the same exposure as someone
-reaching the physical enclosure.
-
----
-
 ## 4. Config payload structure
 
 This is the `cfg` object. It is what the engineer edits, and it sits nested inside the signed
@@ -1302,7 +1145,6 @@ bytes. That is expected. Verification against the fixed public key is what must 
 | 2026-08-25 | §5: canonicalization scope widened from `cfg` to the signed object; the rules themselves unchanged |
 | 2026-08-25 | §5: trust-model section rewritten. Residual gaps stated explicitly — deferred key distribution, firmware that may not ship, and administrator-deletable ledger history |
 | 2026-08-25 | §3.8: `down/keys` reserved — signed key list under a device-held root key, with the bootstrap case noted. Deliberately not fully specified |
-| 2026-08-26 | §3.9 ADDED — `down/estop`. Emergency stop could not be expressed as a `down/cmd`: four of §3.7's reconciliation rules (bounded ttl, auto-expiry, no reboot survival, cancelled by new config) state the opposite of what a sticky stop requires. Own retained topic, monotonic `seq` for replay defence, NVS-persisted, cleared only by an explicit higher-seq clear. Trigger by engineer or farmer, clear by engineer only. Session-attributed rather than signed, so a missing key cannot prevent halting a greenhouse. ADDITIVE — no existing field or behaviour changes |
 | 2026-08-26 | §5: the normative verification table contradicted the warning directly above it. "Node / WebCrypto — verify over the 32-byte digest as the data" instructs exactly the double-hash the warning forbids: WebCrypto has no prehashed mode. Split into separate WebCrypto and Node.js rows, both stating that signing and verification happen over `cfg_canonical` bytes. The §5 flow table ("signs the hash") carried the same defect and is corrected. Verified against a faithful mbedTLS model: following the old wording, the browser self-check passes and the ESP32 rejects. Also §2: `setBufferSize(1024)` corrected to 2048, which had contradicted §3.6 since the payload sizing was measured |
 | 2026-08-25 | §5: test vector 2 — full DER hex added, and prehashed verification stated explicitly. The elided form was copyable-but-wrong, and the doc never said the signature is over the digest directly rather than over a re-hash of it |
 | 2026-08-25 | §3.3: `cfg.src` gains `none` — the never-configured first-boot state, previously logged as NULL and indistinguishable from a malformed field |

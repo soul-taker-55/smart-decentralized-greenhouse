@@ -60,6 +60,21 @@ export class EdgeState {
 
     /** Set when an override expires, so the next actuator publish is immediate. */
     this.dirty = false;
+
+    /**
+     * Emergency stop. Contract v4 §3.9.
+     *
+     * STICKY. No timer clears this, applyConfig() does not clear it, and a
+     * reboot does not clear it — on real hardware `active` and `seq` persist to
+     * NVS alongside the applied config. Only an explicit higher-seq clear
+     * releases it.
+     *
+     * `seq` is stored because a retained message is redelivered on every
+     * reconnect. Without it the device cannot distinguish an operator clearing
+     * the stop from the broker replaying an old clear, and the second would
+     * silently unhalt a greenhouse someone deliberately stopped.
+     */
+    this.estop = { active: false, seq: 0, since: null, reason: null, by: null };
   }
 
   // ── Config ────────────────────────────────────────────────────────────────
@@ -72,6 +87,37 @@ export class EdgeState {
    * being involved at all — which is the single clearest piece of evidence for
    * edge autonomy in the whole event log.
    */
+  /**
+   * Apply or release an emergency stop.
+   *
+   * @returns {{applied: boolean, ignored?: string}}
+   */
+  setEstop({ seq, state, reason, by }) {
+    // Monotonic. Equal counts as stale: a stop already in force has nothing to
+    // add, and re-applying would reset `since` and lose when it actually began.
+    if (seq <= this.estop.seq) {
+      return { applied: false, ignored: `seq ${seq} not newer than ${this.estop.seq}` };
+    }
+
+    const active = state === 'stopped';
+    this.estop = {
+      active,
+      seq,
+      since: active ? Date.now() : null,
+      reason: reason ?? null,
+      by: by?.user ?? null,
+    };
+
+    // Everything off. Overrides are cancelled outright rather than suspended —
+    // clearing a stop resumes automation under the stored config, it does not
+    // restore whatever was running before, which would be the opposite of what
+    // an operator expects from "clear".
+    if (active) this.overrides.clear();
+    this.dirty = true;
+
+    return { applied: true };
+  }
+
   applyConfig({ ver, hash, cfg, src = 'mqtt' }) {
     this.applied = { ver, hash, cfg, src };
 

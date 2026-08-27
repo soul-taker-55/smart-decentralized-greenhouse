@@ -87,4 +87,5 @@ export const topics = {
   config: `sdigf/v1/${config.ghId}/down/config`,
   cmd: `sdigf/v1/${config.ghId}/down/cmd`,
   keys: `sdigf/v1/${config.ghId}/down/keys`,
+  estop: `sdigf/v1/${config.ghId}/down/estop`,
 };

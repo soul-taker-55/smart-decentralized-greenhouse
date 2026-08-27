@@ -84,6 +84,7 @@ export class MqttPublisher {
       status: null,
       ack: null,
       configEcho: null,
+      estopEcho: null,
     };
   }
 
@@ -209,6 +210,7 @@ export class MqttPublisher {
       [topics.ack, 1],
       [topics.status, 1],
       [topics.config, 1],
+      [topics.estop, 1],
     ];
 
     for (const [topic, qos] of subs) {
@@ -240,6 +242,12 @@ export class MqttPublisher {
       parsed = JSON.parse(payload.toString('utf8'));
     } catch {
       this.log.warn?.(`[mqtt] non-JSON payload on ${topic}, ignored`);
+      return;
+    }
+
+    if (topic === topics.estop) {
+      this.lastSeen.estopEcho = parsed;
+      this.emit('estop', parsed);
       return;
     }
 
@@ -399,6 +407,41 @@ export class MqttPublisher {
     });
 
     this.log.info?.(`[mqtt] published cmd ${cmd.id} ${cmd.target}=${cmd.action} ttl=${cmd.ttl_s}s`);
+    return { ts: envelope.ts };
+  }
+
+  /**
+   * Publish an emergency stop, RETAINED.
+   *
+   * Retained because this is STATE, not an event — a controller rebooting into
+   * a halted greenhouse must come back halted, without the server having to
+   * detect the reconnection. Contract v4 §3.9.
+   *
+   * No read-back verification here, deliberately. A stop must be published as
+   * fast as possible; waiting for the broker to hand the message back would add
+   * latency to the one operation where latency is least acceptable. The device
+   * acks, and the dashboard shows requested-but-unconfirmed until it does.
+   */
+  async publishEstop({ seq, state, reason, by }) {
+    if (!this.client) throw new PublishError('MQTT client not connected');
+
+    const envelope = {
+      v: ENVELOPE_V,
+      ts: Math.floor(Date.now() / 1000),
+      gh: config.ghId,
+      seq,
+      state,
+      by: by ? { user: by.id, role: by.role } : null,
+      reason: reason ?? null,
+    };
+
+    await new Promise((resolve, reject) => {
+      this.client.publish(topics.estop, JSON.stringify(envelope), { qos: 1, retain: true }, (err) =>
+        err ? reject(new PublishError(`publish to ${topics.estop} failed: ${err.message}`, err)) : resolve()
+      );
+    });
+
+    this.log.warn?.(`[mqtt] EMERGENCY STOP ${state} seq=${seq} by=${by?.id ?? 'unknown'}`);
     return { ts: envelope.ts };
   }
 

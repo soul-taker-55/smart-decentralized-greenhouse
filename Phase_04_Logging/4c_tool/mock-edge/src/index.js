@@ -25,7 +25,7 @@ import mqtt from 'mqtt';
 import { config, topics } from './config.js';
 import { Environment } from './environment.js';
 import { EdgeState } from './state.js';
-import { handleConfig, handleCommand } from './handlers.js';
+import { handleConfig, handleCommand, handleEstop } from './handlers.js';
 
 const bootTime = Date.now();
 let seq = 0;
@@ -73,6 +73,12 @@ const telemetryPayload = () => ({
  * least entitled to.
  */
 const relayState = (name) => {
+  // Everything off, unconditionally. Relays are active-LOW on COM+NO, so the
+  // safe state is also the unpowered state — the same position the hardware
+  // takes if it loses power entirely.
+  if (state.estop.active) {
+    return { on: false, src: 'safety', for_s: Math.floor((Date.now() - state.estop.since) / 1000) };
+  }
   const o = state.getOverride(name);
   if (!o) {
     return { on: false, src: 'auto', for_s: uptimeSeconds() };
@@ -100,7 +106,11 @@ const actuatorPayload = () => {
   return {
     ...envelope(),
     a: relays,
-    canopy: canopyOverride
+    canopy: state.estop.active
+      ? // Commanded to hold, servo detached. Not driven anywhere: moving a
+        // mechanism during an emergency is not obviously safer than leaving it.
+        { pos: 0, target: 0, moving: false, src: 'safety' }
+      : canopyOverride
       ? {
           pos: canopyOverride.value ?? 0,
           target: canopyOverride.value ?? 0,
@@ -110,6 +120,9 @@ const actuatorPayload = () => {
         }
       : { pos: 0, target: 0, moving: false, src: 'auto' },
     vent,
+    // Device-declared. The server asserts only that it asked for a stop; this
+    // is the device saying whether it is actually halted.
+    estop: state.estop.active,
   };
 };
 
@@ -140,6 +153,11 @@ const healthPayload = () => ({
     src: state.applied.src,
     verify: 'unsupported',
   },
+  estop: {
+    active: state.estop.active,
+    seq: state.estop.seq,
+    since: state.estop.since ? Math.floor(state.estop.since / 1000) : null,
+  },
   mqtt_reconnects: reconnectCount,
   boot_reason: 'power_on',
 });
@@ -155,6 +173,17 @@ const healthPayload = () => ({
  * RUNNING. Without that separation, "the hardware is running exactly what was
  * approved" is an unverifiable claim.
  */
+/** Acknowledgement for an emergency stop. §3.9 — ref carries estop_seq. */
+const estopAckPayload = (outcome) => ({
+  ...envelope(),
+  ref: { estop_seq: outcome.estopSeq },
+  result: outcome.result,
+  applied: outcome.applied,
+  verify: 'unsupported',
+  verified_by: [],
+  reason: outcome.reason,
+});
+
 const configAckPayload = (outcome) => ({
   ...envelope(),
   ref: outcome.ref,
@@ -237,7 +266,7 @@ client.on('connect', () => {
   // broker delivers the current configuration immediately on subscribe — which
   // is exactly how a real ESP32 picks up its config after a power cut without
   // the server having to detect the reconnection.
-  client.subscribe([topics.config, topics.cmd], { qos: 1 }, (err, granted) => {
+  client.subscribe([topics.config, topics.cmd, topics.estop], { qos: 1 }, (err, granted) => {
     if (err) {
       console.error('[mqtt] subscribe failed:', err.message);
       return;
@@ -260,6 +289,29 @@ client.on('connect', () => {
 });
 
 client.on('message', (topic, raw) => {
+  if (topic === topics.estop) {
+    const outcome = handleEstop(raw, state, config.greenhouseId);
+
+    if (outcome.result === 'ignored') {
+      console.log(`[estop] ignored — ${outcome.reason.detail}`);
+      return;
+    }
+    if (outcome.result === 'accepted') {
+      console.warn(
+        state.estop.active
+          ? `[estop] *** EMERGENCY STOP ACTIVE *** seq=${state.estop.seq} by=${state.estop.by ?? 'unknown'} — all actuators de-energised`
+          : `[estop] cleared, seq=${state.estop.seq} — resuming autonomous control`
+      );
+    } else {
+      console.warn(`[estop] REJECTED ${outcome.reason.code} — ${outcome.reason.detail}`);
+    }
+
+    publish(topics.ack, estopAckPayload(outcome), { qos: 1, retain: false });
+    publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
+    publish(topics.health, healthPayload(), { qos: 0, retain: true });
+    return;
+  }
+
   if (topic === topics.config) {
     const outcome = handleConfig(raw, state, config.greenhouseId);
 
@@ -355,6 +407,7 @@ const startPublishing = () => {
   // behave correctly for an override to end; the timer simply expires.
   timers.push(
     setInterval(() => {
+      if (state.estop.active) return; // nothing to expire; the stop is not a timer
       const expired = state.expireOverrides();
       if (expired.length > 0) {
         console.log(`[override] expired, back to autonomous control: ${expired.join(', ')}`);
