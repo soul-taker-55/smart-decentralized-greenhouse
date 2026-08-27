@@ -181,10 +181,19 @@ export async function getStanding(profileId) {
 /** Who has voted, for the UI and for the audit trail. */
 export async function listVotes(profileId) {
   const r = await query(
+    // created_by travels with each vote for the provenance view.
+    //
+    // NOT A CONTROL. users.created_by is an ordinary column an administrator
+    // can update, so an admin who manufactures a quorum can also erase the
+    // lineage this exposes. It is a convenience for an HONEST audit and an
+    // artifact showing the limitation was understood — nothing more. The
+    // interface must not present it as a detection guarantee.
     `SELECT a.id, a.key_id, a.user_id, a.decision, a.cfg_hash, a.reason, a.created_at,
-            u.username, k.status AS key_status
+            u.username, u.created_by, c.username AS created_by_username,
+            k.status AS key_status
      FROM config_approvals a
      JOIN users u ON u.id = a.user_id
+     LEFT JOIN users c ON c.id = u.created_by
      JOIN user_keys k ON k.key_id = a.key_id
      WHERE a.config_profile_id = $1
      ORDER BY a.created_at ASC`,

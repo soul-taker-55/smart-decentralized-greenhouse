@@ -26,6 +26,16 @@ function InviteForm({ onInvited }) {
   const [issued, setIssued] = useState(null);
   const [error, setError] = useState(null);
 
+  // Mirrors the server's check, for immediate feedback. The SERVER's copy is
+  // the one that matters — this is convenience, not validation.
+  //
+  // Format only. Nothing is sent to the address and nothing confirms the
+  // recipient owns it, so it is a label rather than proof of identity.
+  const emailOk = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(email.trim());
+  const usernameOk = /^[a-zA-Z0-9._-]{2,32}$/.test(username.trim());
+  const showEmailError = email.length > 0 && !emailOk;
+  const showUsernameError = username.length > 0 && !usernameOk;
+
   async function submit() {
     setBusy(true);
     setError(null);
@@ -48,13 +58,17 @@ function InviteForm({ onInvited }) {
       </div>
 
       <div className="cmd-grid">
-        <label>
+        <label className={showUsernameError ? 'field has-error' : ''}>
           <span>Username</span>
           <input value={username} onChange={(e) => setUsername(e.target.value)} />
+          {showUsernameError && (
+            <em className="fielderr">2–32 characters: letters, digits, dot, underscore, hyphen</em>
+          )}
         </label>
-        <label>
+        <label className={showEmailError ? 'field has-error' : ''}>
           <span>Email</span>
           <input value={email} onChange={(e) => setEmail(e.target.value)} />
+          {showEmailError && <em className="fielderr">Not a valid email address</em>}
         </label>
         <label>
           <span>Role</span>
@@ -69,10 +83,13 @@ function InviteForm({ onInvited }) {
       <div className="rolenote">{ROLE_NOTE[role]}</div>
 
       <div className="cmd-foot">
-        <button className="btn" onClick={submit} disabled={busy || !email || !username}>
+        <button className="btn" onClick={submit} disabled={busy || !emailOk || !usernameOk}>
           {busy ? 'Creating…' : 'Create invite'}
         </button>
-        <span className="cmd-cap">The link expires in 24 hours and works once.</span>
+        <span className="cmd-cap">
+          The link expires in 24 hours and works once. Addresses are checked for format
+          only — nothing is sent and ownership is not verified.
+        </span>
       </div>
 
       {error && <div className="cmd-result bad">{error}</div>}

@@ -1944,3 +1944,31 @@ body {
     text-align: left;
   }
 }
+
+/* Field-level validation feedback in forms. */
+.fielderr {
+  font-size: 10px;
+  color: var(--red);
+  font-style: normal;
+  margin-top: 4px;
+  display: block;
+}
+
+/*
+ * Provenance note.
+ *
+ * Deliberately styled as MUTED INFORMATION, not as an alert. It reports that
+ * approvers share a creator; it does not claim to have detected anything. The
+ * underlying column is administrator-editable, so a warning treatment would
+ * imply a guarantee the data cannot support.
+ */
+.provenance {
+  margin-top: 9px;
+  padding: 7px 9px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  line-height: 1.55;
+}

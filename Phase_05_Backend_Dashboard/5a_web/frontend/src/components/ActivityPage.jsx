@@ -29,6 +29,20 @@ function describe(e) {
         };
       case 'CONFIG_REJECTED':
         return { text: 'Rejected', note: d.reason };
+      case 'ESTOP_TRIGGERED':
+        return { text: 'Emergency stop triggered', note: d.reason, warn: true };
+      case 'ESTOP_CLEARED':
+        return { text: 'Emergency stop cleared', note: d.reason };
+      case 'KEY_REGISTERED':
+        return { text: 'Signing key registered', note: d.keyId };
+      case 'KEY_REVOKED':
+        return { text: 'Signing key revoked', note: d.keyId, warn: true };
+      case 'APPROVAL_POLICY_CHANGED':
+        return {
+          text: `Approval threshold set to ${d.to?.threshold_m}`,
+          note: d.weakened ? 'This lowers the number of signatures required.' : null,
+          warn: Boolean(d.weakened),
+        };
       case 'CONFIG_ACTIVATED':
         return {
           text: `Version ${d.ver} put into service`,
@@ -72,9 +86,19 @@ function describe(e) {
                 : null,
       };
     case 'CONFIG_APPLIED':
-      return { text: `Applied version ${e.cfgVer}` };
+      // Guard against a null version. A malformed or duplicate ack during a
+      // reconnect burst produced an empty payload, which rendered as "Applied
+      // version null" in the feed. The root cause is logged as an open item;
+      // this stops the feed asserting something that is not a version.
+      return e.cfgVer == null
+        ? { text: 'Applied a configuration', note: 'version not reported in this acknowledgement' }
+        : { text: `Applied version ${e.cfgVer}` };
     case 'ACK':
       return { text: 'Acknowledged', note: e.cfgHash ? `for ${e.cfgHash.slice(0, 12)}…` : null };
+    case 'ESTOP_TRIGGERED':
+      return { text: 'Emergency stop triggered', note: e.detail?.reason, warn: true };
+    case 'ESTOP_CLEARED':
+      return { text: 'Emergency stop cleared', note: e.detail?.reason };
     default:
       return { text: e.eventType };
   }

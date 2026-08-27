@@ -299,6 +299,27 @@ function Standing({ standing, votes }) {
         </div>
       )}
 
+      {/*
+        Provenance. Stated as a NEUTRAL OBSERVATION, never as a warning.
+
+        users.created_by is an ordinary column an administrator can edit, so an
+        administrator who creates several engineer accounts and approves as them
+        can also erase this lineage. Presenting it as a detection mechanism would
+        overclaim: it helps an honest audit and does nothing against a dishonest
+        administrator. The wording therefore reports a fact and draws no
+        conclusion from it.
+      */}
+      {(() => {
+        const creators = new Set(approvers.map((v) => v.created_by).filter(Boolean));
+        if (approvers.length < 2 || creators.size !== 1) return null;
+        const who = approvers.find((v) => v.created_by)?.created_by_username;
+        return (
+          <div className="provenance">
+            Approvers were created by the same administrator{who ? ` (${who})` : ''}.
+          </div>
+        );
+      })()}
+
       {/* The proposer is listed separately so it is obvious why their own
           signature is absent, rather than looking like an oversight. */}
       <div className="proposer-note">
