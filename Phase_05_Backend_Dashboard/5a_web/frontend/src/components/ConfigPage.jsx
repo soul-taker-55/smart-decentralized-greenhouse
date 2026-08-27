@@ -556,6 +556,25 @@ export default function ConfigPage() {
                       <Diff diff={diff} />
 
                       <div className="prow-actions">
+                        {/* Available on EVERY version regardless of status.
+                            Cloning bypasses no gate — the clone still needs
+                            full approval — and this is HOW ROLLBACK WORKS.
+                            There is no re-activate path, because the device
+                            rejects an older ver as stale and cannot tell a
+                            legitimate rollback from a replay. */}
+                        <button
+                          className="btn ghost sm"
+                          disabled={busy}
+                          onClick={() =>
+                            act(
+                              (id) => api.cloneProfile(id, null),
+                              p.id,
+                              (d) => `Copied into version ${d.profile.ver} as a new draft.`
+                            )
+                          }
+                        >
+                          Clone
+                        </button>
                         {p.status === 'DRAFT' && (
                           <button className="btn sm" disabled={busy} onClick={() => act(api.propose, p.id, 'Proposed.')}>
                             Propose

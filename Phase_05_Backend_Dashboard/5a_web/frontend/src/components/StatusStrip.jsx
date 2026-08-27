@@ -66,7 +66,7 @@ function VerifyBadge({ verify }) {
  * a real state, and collapsing both into one dot would hide precisely the
  * situation an operator most needs to notice.
  */
-export default function StatusStrip({ status }) {
+export default function StatusStrip({ status, estop }) {
   const gh = status?.greenhouse;
   const edge = status?.edge;
   const server = status?.server;
@@ -117,6 +117,15 @@ export default function StatusStrip({ status }) {
         <span className="k">Server active</span>
         <span className="v num">{server?.activeCfgVer != null ? `v${server.activeCfgVer}` : 'None'}</span>
       </div>
+
+      {/* Stop state appears wherever system status appears — a halted
+          greenhouse must not read as a running one anywhere in the interface. */}
+      {estop?.requested?.state === 'stopped' && (
+        <div className="strip-cell estop-cell">
+          <span className="k">Emergency</span>
+          <span className="v">{estop.confirmed ? 'STOPPED' : 'STOP REQUESTED'}</span>
+        </div>
+      )}
 
       <div className="strip-cell">
         <span className="k">Signatures</span>

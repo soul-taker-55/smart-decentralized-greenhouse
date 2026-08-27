@@ -8,6 +8,7 @@ import ConfigPage from './components/ConfigPage.jsx';
 import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
 import { LoginPage, InvitePage, KeySetup } from './components/AuthPages.jsx';
 import AdminPage from './components/AdminPage.jsx';
+import { EstopBanner, EstopControl } from './components/Estop.jsx';
 
 /**
  * Poll an endpoint on an interval.
@@ -16,7 +17,7 @@ import AdminPage from './components/AdminPage.jsx';
  * contract, so a socket would add a reconnection state machine to gain nothing
  * an operator could perceive.
  */
-function usePoll(fn, ms) {
+function usePoll(fn, ms, refreshKey = 0) {
   const [state, setState] = useState({ data: null, error: null, loaded: false });
 
   useEffect(() => {
@@ -32,7 +33,7 @@ function usePoll(fn, ms) {
       clearInterval(t);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ms]);
+  }, [ms, refreshKey]);
 
   return state;
 }
@@ -161,7 +162,7 @@ function LivePage({ status }) {
  * means a manual override is always a deliberate navigation, never a stray
  * click while reading numbers.
  */
-function ActuatorsPage({ status }) {
+function ActuatorsPage({ status, user, estop, onEstopChanged }) {
   const [tick, setTick] = useState(0);
   const { data, loaded } = usePoll(api.live, 10000);
   const { data: targetData } = usePoll(api.commandTargets, 300000);
@@ -187,12 +188,24 @@ function ActuatorsPage({ status }) {
       {!loaded && <p style={{ color: 'var(--muted)', fontSize: 13 }}>Loading…</p>}
 
       {loaded && (
-        <ActuatorPanel
-          key={tick}
-          actuators={actuators}
-          targets={targetData}
-          onIssued={() => setTick((t) => t + 1)}
-        />
+        <>
+          <ActuatorPanel
+            key={tick}
+            actuators={actuators}
+            targets={targetData}
+            onIssued={() => setTick((t) => t + 1)}
+          />
+          <div style={{ marginTop: 12 }}>
+            <EstopControl
+              estop={estop}
+              user={user}
+              onChanged={() => {
+                setTick((t) => t + 1);
+                onEstopChanged?.();
+              }}
+            />
+          </div>
+        </>
       )}
     </>
   );
@@ -231,16 +244,31 @@ export default function App() {
 
 function Shell({ user, onSignOut }) {
   const { data: status } = usePoll(api.status, 10000);
+  const [estopTick, setEstopTick] = useState(0);
+  const { data: estop } = usePoll(api.estop, 5000, estopTick);
 
   return (
     <div className="app">
-      <StatusStrip status={status} />
+      <StatusStrip status={status} estop={estop} />
+      {/* Above everything, on every page. A band that displaces the layout
+          rather than a badge that can be scrolled past. */}
+      <EstopBanner estop={estop} user={user} onChanged={() => setEstopTick((t) => t + 1)} />
       <div className="body">
         <Sidebar user={user} onSignOut={onSignOut} />
         <main className="main">
           <Routes>
             <Route path="/" element={<LivePage status={status} />} />
-            <Route path="/actuators" element={<ActuatorsPage status={status} />} />
+            <Route
+              path="/actuators"
+              element={
+                <ActuatorsPage
+                  status={status}
+                  user={user}
+                  estop={estop}
+                  onEstopChanged={() => setEstopTick((t) => t + 1)}
+                />
+              }
+            />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/events" element={<ActivityRoute />} />
             <Route path="/camera" element={<CameraPage />} />

@@ -45,6 +45,12 @@ export const api = {
   peekInvite: (token) => get(`/api/auth/invite/${token}`),
   redeemInvite: (token, password) => post(`/api/auth/invite/${token}/redeem`, { password }),
 
+  // ── emergency stop ──────────────────────────────────────────────────────
+  estop: () => get('/api/estop'),
+  triggerEstop: (reason) => post('/api/estop/trigger', { reason }),
+  clearEstop: (reason) => post('/api/estop/clear', { reason }),
+  estopHistory: () => get('/api/estop/history'),
+
   // ── keys ────────────────────────────────────────────────────────────────
   registerKey: (publicKey) => post('/api/keys', { publicKey }),
   myKey: () => get('/api/keys/mine'),
@@ -73,6 +79,7 @@ export const api = {
   profile: (id) => get(`/api/config/profiles/${id}`),
   diff: (id) => get(`/api/config/profiles/${id}/diff`),
   createProfile: (cfg, name) => post('/api/config/profiles', { cfg, name }),
+  cloneProfile: (id, name) => post(`/api/config/profiles/${id}/clone`, { name }),
   propose: (id, ttlHours) => post(`/api/config/profiles/${id}/propose`, { ttlHours }),
   approve: (id, signature) => post(`/api/config/profiles/${id}/approve`, { signature }),
   reject: (id, signature, reason) => post(`/api/config/profiles/${id}/reject`, { signature, reason }),

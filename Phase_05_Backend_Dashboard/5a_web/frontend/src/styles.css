@@ -98,8 +98,12 @@ body {
 
 .app {
   display: grid;
-  grid-template-rows: auto 1fr;
+  /* strip · emergency band · body. The band is its own row rather than an
+     overlay, so when it appears it DISPLACES the page instead of covering
+     part of it — the layout shifting is itself the signal. */
+  grid-template-rows: auto auto 1fr;
   height: 100%;
+  min-height: 0;
 }
 
 .body {
@@ -1800,4 +1804,143 @@ body {
   color: var(--muted);
   margin-top: 8px;
   line-height: 1.5;
+}
+
+/* ─── Emergency stop ────────────────────────────────────────────────────── */
+
+/*
+ * A band, not a badge. It displaces the layout so a halted greenhouse cannot be
+ * mistaken for a running one by someone glancing at the page.
+ */
+.estop-band {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
+}
+
+/* Confirmed by the device: everything really is off. */
+.estop-band.stopped {
+  background: #2a1416;
+  border-bottom-color: var(--red);
+  box-shadow: inset 0 -2px 0 var(--red);
+}
+
+/* Published, unconfirmed. Amber rather than red, because nothing has been
+   proven to be off yet — and the wording says so. */
+.estop-band.requested {
+  background: #2a2114;
+  border-bottom-color: var(--amber);
+  box-shadow: inset 0 -2px 0 var(--amber);
+}
+
+.estop-band-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.estop-word {
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.estop-band.stopped .estop-word {
+  color: var(--red);
+}
+.estop-band.requested .estop-word {
+  color: var(--amber);
+}
+
+.estop-detail {
+  font-size: 11.5px;
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.estop-band-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 10.5px;
+  color: var(--muted);
+  text-align: right;
+}
+
+.estop-reason {
+  font-style: italic;
+  max-width: 280px;
+}
+
+.estop-cannot {
+  font-size: 10.5px;
+  color: var(--muted);
+  max-width: 150px;
+  display: block;
+  line-height: 1.5;
+}
+
+.estop-clearform {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.estop-clearform input {
+  font-family: var(--mono);
+  font-size: 12px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel);
+  color: var(--text);
+  min-width: 210px;
+}
+
+.estop-error {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--red);
+  padding-top: 6px;
+}
+
+.strip-cell.estop-cell .v {
+  color: var(--red);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+/* The trigger control is visually separated from ordinary actuator controls,
+   because it is not one of them: everything else on that page is bounded and
+   reversible, and this is neither. */
+.estop-card {
+  border-color: var(--red);
+  box-shadow: inset 2px 0 0 var(--red);
+  max-width: 620px;
+}
+
+.btn.danger {
+  background: #8f2b2b;
+  border-color: #8f2b2b;
+  color: var(--text);
+}
+
+.btn.danger:hover:not(:disabled) {
+  background: transparent;
+  border-color: var(--red);
+  color: var(--red);
+}
+
+@media (max-width: 800px) {
+  .estop-band {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .estop-band-meta {
+    text-align: left;
+  }
 }
