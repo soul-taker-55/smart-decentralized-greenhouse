@@ -67,6 +67,38 @@ export async function setPolicy({ thresholdM, proposalTtlHours, actor }) {
     throw new ApprovalError('threshold must be a positive integer', 'bad_policy');
   }
 
+  // ── The threshold must be satisfiable ─────────────────────────────────────
+  //
+  // The proposer's own signature never counts, so approving anything needs
+  // thresholdM approvers PLUS the proposer — M+1 engineers holding active keys.
+  //
+  // Set M higher than that and nothing breaks loudly. Proposals simply sit at
+  // PARTIALLY_APPROVED forever, with every signature valid and the count never
+  // reaching the bar. There is no error to read and no obvious cause, and the
+  // natural diagnosis is that signing is broken rather than that the policy is
+  // unsatisfiable.
+  //
+  // Refusing at the point of change is the only place this is cheap to catch.
+  // Warning in the interface is not enough — the endpoint is reachable without
+  // it, and an unsatisfiable threshold is a self-inflicted denial of service on
+  // the approval path.
+  const eligible = await query(
+    `SELECT count(*)::int AS n
+     FROM users u
+     JOIN user_keys k ON k.user_id = u.id AND k.status = 'active'
+     WHERE u.role = 'engineer' AND u.status = 'active'`
+  );
+  const engineers = eligible.rows[0].n;
+
+  if (thresholdM + 1 > engineers) {
+    throw new ApprovalError(
+      `a threshold of ${thresholdM} needs ${thresholdM + 1} engineers with active signing keys ` +
+        `(the proposer plus ${thresholdM} approvers), but ${engineers} ` +
+        `${engineers === 1 ? 'has' : 'have'} one. Nothing could ever be approved.`,
+      'unsatisfiable'
+    );
+  }
+
   return transaction(async (client) => {
     const before = await client.query(
       'SELECT threshold_m, proposal_ttl_hours FROM approval_policy WHERE gh_id = $1 FOR UPDATE',

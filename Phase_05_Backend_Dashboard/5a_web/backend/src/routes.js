@@ -41,7 +41,7 @@ function errorResponse(reply, err) {
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'KeyError' || err.name === 'ApprovalError') {
-    const status = { not_found: 404, already_voted: 409, self_approval: 403, bad_state: 409, no_key: 400, wrong_role: 403, key_in_use: 409 };
+    const status = { not_found: 404, already_voted: 409, self_approval: 403, bad_state: 409, no_key: 400, wrong_role: 403, key_in_use: 409, unsatisfiable: 409 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'AuthError') {
