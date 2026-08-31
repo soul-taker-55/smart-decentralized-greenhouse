@@ -42,7 +42,16 @@ export function EstopBanner({ estop, user, onChanged }) {
   const confirmed = estop.confirmed === true;
   if (!requested) return null;
 
+  const isLocal = estop.requested?.source === 'local';
+  const isRetrospective = estop.requested?.retrospective === true;
   const canClear = user?.role === 'engineer';
+
+  const deviceSince = estop.requested?.deviceSince
+    ? new Date(estop.requested.deviceSince * 1000).toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : null;
 
   async function clear() {
     setBusy(true);
@@ -62,19 +71,42 @@ export function EstopBanner({ estop, user, onChanged }) {
           {confirmed ? 'EMERGENCY STOP' : 'EMERGENCY STOP REQUESTED'}
         </span>
         <span className="estop-detail">
-          {confirmed
-            ? 'The controller has confirmed everything is switched off.'
-            : // The honest reading of an unconfirmed stop. Nothing has been
-              // proven to be off yet.
-              'Published, but the controller has not confirmed it. Equipment may still be running.'}
+          {/*
+            WHERE the stop came from is a different operational fact from
+            WHETHER one is active, and collapsing them is dangerous: someone
+            reading only "stopped" assumes a colleague did it remotely, when a
+            local stop means SOMEONE IS STANDING IN THE GREENHOUSE RIGHT NOW.
+          */}
+          {isLocal
+            ? 'Triggered locally at the enclosure. Someone may be physically present.'
+            : confirmed
+              ? 'The controller has confirmed everything is switched off.'
+              : 'Published, but the controller has not confirmed it. Equipment may still be running.'}
         </span>
+        {isRetrospective && (
+          // The server did not witness this. It learned about it afterwards,
+          // from the device's own report — which it cannot verify.
+          <span className="estop-retro">
+            Reported when the controller reconnected
+            {deviceSince ? ` — the controller says this began at ${deviceSince}` : ''}
+          </span>
+        )}
       </div>
 
       <div className="estop-band-meta">
-        {estop.requested?.by && (
+        {isLocal ? (
+          // No identified actor, and the interface says so rather than leaving
+          // an empty space that reads as missing data. Physical access is its
+          // own attribution tier.
           <span>
-            Stopped by <b>{estop.requested.by}</b>
+            <b>At the enclosure</b> — no signed-in user
           </span>
+        ) : (
+          estop.requested?.by && (
+            <span>
+              Stopped remotely by <b>{estop.requested.by}</b>
+            </span>
+          )
         )}
         {estop.requested?.reason && <span className="estop-reason">“{estop.requested.reason}”</span>}
       </div>

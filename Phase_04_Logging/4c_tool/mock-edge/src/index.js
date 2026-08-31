@@ -1,457 +1,249 @@
-// SDIGF mock edge node — Stage 2
-//
-// Stands in for the ESP32 so the server tier can be built and demonstrated
-// before firmware exists. Contract: Phase_04_Logging/4b_contracts/
-// mqtt_contract_v4.md
-//
-// STAGE 1 (done): connect, last will, telemetry, health, static actuators.
-// STAGE 2 (this): subscribe down/config and down/cmd, validate, apply,
-//                 acknowledge; per-actuator overrides with edge-local expiry.
-//
-// STILL NOT IMPLEMENTED, DELIBERATELY:
-//   - Signature verification. Phase 03 firmware work. This mock reports
-//     `verify: "unsupported"` for as long as it exists, and that is the
-//     CORRECT reading on the dashboard rather than a fault.
-//   - A rule arbiter or threshold control loop. Stage 2's job is the
-//     validate-apply-ack LOOP, not autonomous behaviour. Actuator states stay
-//     simple; the applied config is reflected where it is cheap to do so, and
-//     overrides are honoured.
-//   - Physics. Actuators do not yet affect the simulated environment.
-//
-// WHY THIS FILE MATTERS BEYOND THE DEMO: the handling in src/handlers.js is the
-// direct reference Phase 02 firmware ports to C++.
-
-import mqtt from 'mqtt';
-import { config, topics } from './config.js';
-import { Environment } from './environment.js';
-import { EdgeState } from './state.js';
-import { handleConfig, handleCommand, handleEstop } from './handlers.js';
-
-const bootTime = Date.now();
-let seq = 0;
-let reconnectCount = 0;
-
-const env = new Environment();
-const state = new EdgeState();
-
-// ---------------------------------------------------------------------------
-// Envelope
-// ---------------------------------------------------------------------------
-
-// Every edge→server message carries the same envelope so the bridge can
-// validate uniformly. `tsq` is 'ntp' because this runs on a server with a real
-// clock — the ESP32 will report 'boot' until NTP syncs.
-const envelope = () => ({
-  v: config.schemaVersion,
-  ts: Math.floor(Date.now() / 1000),
-  tsq: 'ntp',
-  seq: ++seq,
-});
-
-const uptimeSeconds = () => Math.floor((Date.now() - bootTime) / 1000);
-
-// ---------------------------------------------------------------------------
-// Payload builders
-// ---------------------------------------------------------------------------
-
-const telemetryPayload = () => ({
-  ...envelope(),
-  r: env.readings(),
-});
-
 /**
- * Actuator state.
+ * SDIGF backend — service entry point.
  *
- * Stage 2 has no control loop, so autonomous state stays off. What IS real is
- * the override layer: an overridden actuator reports `src: 'manual'` and the
- * remaining seconds in `ovr_s`.
+ * Startup order is deliberate:
  *
- * `ovr_s` IS THE DEVICE'S OWN COUNTDOWN. The dashboard displays this rather
- * than computing issued_at + ttl_s, because only the device knows how much time
- * is actually left. A server-side estimate drifts on clock skew and keeps
- * counting confidently while the device is unreachable — precisely when it is
- * least entitled to.
+ *   1. Verify the canonicalizer still reproduces the frozen test vector.
+ *   2. Verify both databases are reachable and shaped correctly.
+ *   3. Connect to the broker and republish the active config.
+ *   4. Start accepting HTTP.
+ *
+ * Step 1 first, and fatal. A canonicalizer that has silently drifted produces
+ * hashes that look perfectly valid and that no device will ever accept. Failing
+ * on boot beats discovering it when a config is rejected in the field.
+ *
+ * Step 3 before step 4 so the broker's retained state is reconstructed from the
+ * database before anyone can ask the API about it.
  */
-const relayState = (name) => {
-  // Everything off, unconditionally. Relays are active-LOW on COM+NO, so the
-  // safe state is also the unpowered state — the same position the hardware
-  // takes if it loses power entirely.
-  if (state.estop.active) {
-    return { on: false, src: 'safety', for_s: Math.floor((Date.now() - state.estop.since) / 1000) };
-  }
-  const o = state.getOverride(name);
-  if (!o) {
-    return { on: false, src: 'auto', for_s: uptimeSeconds() };
-  }
-  return {
-    on: o.action === 'on',
-    src: 'manual',
-    for_s: Math.floor((Date.now() - (o.expiresAt - o.ttl_s * 1000)) / 1000),
-    ovr_s: state.remainingSeconds(name),
-  };
-};
 
-const actuatorPayload = () => {
-  const canopyOverride = state.getOverride('canopy');
-  const relays = {};
-  for (const name of ['pump', 's_fan', 'internal_fan', 'n_fan', 'humidifier', 'lights', 'grow_light']) {
-    relays[name] = relayState(name);
-  }
+import { existsSync } from 'node:fs';
+import Fastify from 'fastify';
+import { config } from './config.js';
+import { assertFrozenVector } from './canon.js';
+import { checkConnections, closePools } from './db.js';
+import { MqttPublisher } from './mqtt.js';
+import { registerRoutes } from './routes.js';
+import { attachUser } from './auth.js';
+import { bootstrapAdmin } from './services/identity-service.js';
+import * as configService from './services/config-service.js';
+import * as commandService from './services/command-service.js';
+import * as estopService from './services/estop-service.js';
 
-  // Ventilation stage is published explicitly even though it is derivable from
-  // the three fan booleans, so the server never reimplements the mapping and
-  // the two cannot drift apart.
-  const vent = ['s_fan', 'internal_fan', 'n_fan'].filter((f) => relays[f].on).length;
-
-  return {
-    ...envelope(),
-    a: relays,
-    canopy: state.estop.active
-      ? // Commanded to hold, servo detached. Not driven anywhere: moving a
-        // mechanism during an emergency is not obviously safer than leaving it.
-        { pos: 0, target: 0, moving: false, src: 'safety' }
-      : canopyOverride
-      ? {
-          pos: canopyOverride.value ?? 0,
-          target: canopyOverride.value ?? 0,
-          moving: false,
-          src: 'manual',
-          ovr_s: state.remainingSeconds('canopy'),
-        }
-      : { pos: 0, target: 0, moving: false, src: 'auto' },
-    vent,
-    // Device-declared. The server asserts only that it asked for a stop; this
-    // is the device saying whether it is actually halted.
-    estop: state.estop.active,
-  };
-};
-
-const healthPayload = () => ({
-  ...envelope(),
-  up_s: uptimeSeconds(),
-  // No real radio. -50 is a plausible strong signal; the shape matters.
-  rssi: -50,
-  heap: Math.round(process.memoryUsage().heapUsed),
-  heap_min: Math.round(process.memoryUsage().heapUsed),
-  fw: config.firmwareVersion,
-  //
-  // `verify` is required by contract v4 §3.4 and is DECLARED BY THE DEVICE,
-  // never supplied by the server — a server-settable flag could be switched off
-  // by exactly the adversary edge verification defends against. The mock has no
-  // signature verification and never will: it stands in for firmware, and
-  // claiming `enforced` here would put a false capability into the event log and
-  // onto the 05a dashboard. It reports `unsupported` for as long as it exists.
-  //
-  // The field must be PRESENT rather than omitted. An absent field reads as
-  // "unknown" downstream, which is a third state the contract does not define.
-  //
-  // ver/hash/src now report what was actually applied, not a fixed zero. `src`
-  // is 'none' before any config arrives — a real state, not a placeholder.
-  cfg: {
-    ver: state.applied.ver,
-    hash: state.applied.hash,
-    src: state.applied.src,
-    verify: 'unsupported',
-  },
-  estop: {
-    active: state.estop.active,
-    seq: state.estop.seq,
-    since: state.estop.since ? Math.floor(state.estop.since / 1000) : null,
-  },
-  mqtt_reconnects: reconnectCount,
-  boot_reason: 'power_on',
-});
-
-/**
- * Acknowledgement, contract §3.4.
- *
- * "The most important payload in the contract" — it is what proves the hardware
- * is running exactly what was approved.
- *
- * `ref` and `applied` are the same on success and deliberately different on
- * rejection: together they state both what was SENT and what is actually
- * RUNNING. Without that separation, "the hardware is running exactly what was
- * approved" is an unverifiable claim.
- */
-/** Acknowledgement for an emergency stop. §3.9 — ref carries estop_seq. */
-const estopAckPayload = (outcome) => ({
-  ...envelope(),
-  ref: { estop_seq: outcome.estopSeq },
-  result: outcome.result,
-  applied: outcome.applied,
-  verify: 'unsupported',
-  verified_by: [],
-  reason: outcome.reason,
-});
-
-const configAckPayload = (outcome) => ({
-  ...envelope(),
-  ref: outcome.ref,
-  result: outcome.result,
-  applied: outcome.applied,
-  verify: 'unsupported',
-  // Empty when verification is unsupported, per §3.4. Never omitted.
-  verified_by: [],
-  reason: outcome.reason,
-});
-
-/**
- * Acknowledgement for a manual command.
- *
- * ⚠ CONTRACT GAP, FLAG FOR v5. §3.4 defines `up/ack` with `ref: {ver, hash}` —
- * config-shaped, with nowhere to put a command `id`. §3.7 defines commands
- * carrying an `id` "to enable idempotency and correlation with the event log"
- * but never says how that correlation is acknowledged.
- *
- * Resolved here by carrying `id` at the top level and setting `ref` to null.
- * A consumer discriminates on which is present. This matches what the 05a
- * backend's recordAck() already reads, so nothing needs retrofitting — but the
- * contract should say so explicitly rather than leaving each implementer to
- * invent it.
- */
-const commandAckPayload = (outcome) => ({
-  ...envelope(),
-  id: outcome.id,
-  ref: null,
-  result: outcome.result,
-  applied: outcome.applied,
-  verify: 'unsupported',
-  verified_by: [],
-  reason: outcome.reason,
-});
-
-// ---------------------------------------------------------------------------
-// MQTT
-// ---------------------------------------------------------------------------
-
-let timers = [];
-
-const client = mqtt.connect({
-  host: config.mqtt.host,
-  port: config.mqtt.port,
-  username: config.mqtt.username,
-  password: config.mqtt.password,
-  clientId: config.mqtt.clientId,
-  clean: true,
-  reconnectPeriod: 5000,
-
-  // Last will. The payload is fixed at connection time and cannot carry a
-  // current timestamp — the broker publishes these bytes minutes or hours
-  // later. The server timestamps offline events on receipt.
-  will: {
-    topic: topics.status,
-    payload: JSON.stringify({ v: config.schemaVersion, state: 'offline' }),
-    qos: 1,
-    retain: true,
+const app = Fastify({
+  logger: {
+    level: config.logLevel,
+    transport:
+      process.env.NODE_ENV === 'production'
+        ? undefined
+        : { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } },
   },
 });
 
-const publish = (topic, payload, { qos, retain }) => {
-  client.publish(topic, JSON.stringify(payload), { qos, retain }, (err) => {
-    if (err) console.error(`[publish] ${topic} failed:`, err.message);
+let publisher;
+
+/**
+ * Push the current ACTIVE config onto the broker, reconstructing retained state
+ * from the database.
+ *
+ * Called on startup and on every broker reconnect. This is the operational form
+ * of "the retained message is a cache, never a source of truth" — the Phase 04
+ * retainer defect silently destroyed retained messages on restart, and while
+ * storage_type is now disc, the system should survive that class of failure
+ * rather than depend on a setting.
+ *
+ * When there is no ACTIVE profile the retained message is CLEARED, so a
+ * reconnecting device is never handed a config the server no longer considers
+ * current.
+ */
+async function republishActiveConfig() {
+  const active = await configService.getActiveProfile();
+
+  if (!active) {
+    await publisher.clearRetainedConfig();
+    app.log.info('no ACTIVE config — cleared retained message');
+    return { republished: false, reason: 'no active config', cleared: true };
+  }
+
+  const result = await publisher.publishConfig(active);
+  app.log.info(`republished ACTIVE config ver=${active.ver} (${result.bytes} B)`);
+  return { republished: true, ver: active.ver, cfgHash: active.cfgHash, bytes: result.bytes };
+}
+
+async function start() {
+  // ---- 1. Canonicalizer integrity -----------------------------------------
+  try {
+    assertFrozenVector();
+    app.log.info('canonicalization verified against the frozen test vector');
+  } catch (err) {
+    app.log.fatal(
+      `CANONICALIZATION DRIFT — ${err.message}. ` +
+        `Refusing to start: this would produce hashes no device will accept.`
+    );
+    process.exit(1);
+  }
+
+  // ---- 2. Databases --------------------------------------------------------
+  const conn = await checkConnections();
+  for (const e of conn.errors) app.log.warn(e);
+
+  if (!conn.backend) {
+    app.log.fatal('backend database unusable — refusing to start');
+    process.exit(1);
+  }
+  if (!conn.telemetry) {
+    // Not fatal. The dashboard degrades to empty state, which is the expected
+    // condition right now anyway with the mock stopped.
+    app.log.warn('telemetry database unavailable — dashboard will show empty state');
+  }
+
+  // ---- 3. Broker -----------------------------------------------------------
+  publisher = new MqttPublisher({
+    logger: app.log,
+    onRepublishNeeded: republishActiveConfig,
   });
-};
 
-client.on('connect', () => {
-  console.log(`[mqtt] connected to ${config.mqtt.host}:${config.mqtt.port} as ${config.mqtt.clientId}`);
+  // Correlate device acks with the commands and configs that caused them.
+  /**
+   * The edge reporting its own emergency stop state.
+   *
+   * up/actuators is a retained state topic the device already uses to report
+   * facts about itself, so a local trigger arrives here as an ordinary state
+   * change — no new topic, no new semantics. On reconnect the retained message
+   * arrives on subscribe, so the same handler covers both the live case and the
+   * network-was-down case.
+   *
+   * `retrospective` is decided by comparing the device's reported `since`
+   * against now: a stop that began materially before the server saw it is one
+   * the server did not witness, and the record must say so.
+   */
+  publisher.on('actuators', async (payload) => {
+    if (payload?.estop === undefined) return;
+    const deviceStopped = payload.estop === true;
 
-  // Overwrite the retained offline message from any previous session.
-  publish(
-    topics.status,
-    { v: config.schemaVersion, state: 'online', ts: Math.floor(Date.now() / 1000) },
-    { qos: 1, retain: true }
-  );
+    try {
+      const server = await estopService.getServerEstop();
+      const serverStopped = server.state === 'stopped';
+      if (deviceStopped === serverStopped) return;
 
-  // Subscribe BEFORE announcing readiness. down/config is retained, so the
-  // broker delivers the current configuration immediately on subscribe — which
-  // is exactly how a real ESP32 picks up its config after a power cut without
-  // the server having to detect the reconnection.
-  client.subscribe([topics.config, topics.cmd, topics.estop], { qos: 1 }, (err, granted) => {
-    if (err) {
-      console.error('[mqtt] subscribe failed:', err.message);
-      return;
-    }
-    for (const g of granted ?? []) {
-      // Granted QoS 128 means the broker REFUSED the subscription — an ACL
-      // denial. It arrives looking like success unless checked.
-      if (g.qos === 128) {
-        console.error(`[mqtt] subscription DENIED for ${g.topic} — check the broker ACL for ${config.mqtt.username}`);
-      } else {
-        console.log(`[mqtt] subscribed ${g.topic} qos=${g.qos}`);
+      // The device carries `since` on up/health; up/actuators reports the flag
+      // only. Prefer a health-reported since when available, else fall back to
+      // now — and mark it retrospective only when we can show a real gap.
+      const health = publisher.getState().lastSeen?.health;
+      const deviceSince = health?.estop?.since ?? null;
+      const nowS = Math.floor(Date.now() / 1000);
+      const retrospective = deviceSince != null && nowS - deviceSince > 60;
+
+      const r = await estopService.observeLocalEstop({
+        state: deviceStopped ? 'stopped' : 'clear',
+        deviceSince,
+        retrospective,
+        publisher,
+        logger: app.log,
+      });
+      if (r.recorded) {
+        app.log.warn(
+          `local emergency stop ${r.state} recorded from device report ` +
+            `(seq ${r.seq}${r.retrospective ? ', retrospective' : ''})`
+        );
       }
+    } catch (err) {
+      app.log.error(`failed to record device-reported estop: ${err.message}`);
     }
   });
 
-  publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
-  publish(topics.health, healthPayload(), { qos: 0, retain: true });
-
-  startPublishing();
-});
-
-client.on('message', (topic, raw) => {
-  if (topic === topics.estop) {
-    const outcome = handleEstop(raw, state, config.greenhouseId);
-
-    if (outcome.result === 'ignored') {
-      console.log(`[estop] ignored — ${outcome.reason.detail}`);
-      return;
+  publisher.on('ack', async (payload) => {
+    try {
+      const updated = await commandService.recordAck(payload);
+      if (updated) app.log.info(`ack correlated for command ${updated.id}: ${updated.ack_result}`);
+    } catch (err) {
+      app.log.error(`failed to record ack: ${err.message}`);
     }
-    if (outcome.result === 'accepted') {
-      console.warn(
-        state.estop.active
-          ? `[estop] *** EMERGENCY STOP ACTIVE *** seq=${state.estop.seq} by=${state.estop.by ?? 'unknown'} — all actuators de-energised`
-          : `[estop] cleared, seq=${state.estop.seq} — resuming autonomous control`
-      );
-    } else {
-      console.warn(`[estop] REJECTED ${outcome.reason.code} — ${outcome.reason.detail}`);
-    }
+  });
 
-    publish(topics.ack, estopAckPayload(outcome), { qos: 1, retain: false });
-    publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
-    publish(topics.health, healthPayload(), { qos: 0, retain: true });
-    return;
+  try {
+    await publisher.connect();
+  } catch (err) {
+    // Not fatal either. The API still serves history and config management, and
+    // the client reconnects on its own — at which point republish runs.
+    app.log.error(`broker unreachable at startup: ${err.message}. Will keep retrying.`);
   }
 
-  if (topic === topics.config) {
-    const outcome = handleConfig(raw, state, config.greenhouseId);
+  // ---- 4. HTTP -------------------------------------------------------------
+  await app.register(import('@fastify/cors'), { origin: true, credentials: true });
+  await app.register(import('@fastify/cookie'));
 
-    // A cleared retained message is not a config and is not acked — there is
-    // nothing to acknowledge and no version to report against.
-    if (outcome.result === 'ignored') {
-      console.log(`[config] ${outcome.reason.detail}`);
-      return;
-    }
+  // Resolves request.user from the session cookie on every request, before any
+  // route's preHandler runs. requireCap() reads request.user; without this hook
+  // it would always see null and every gated route would 401.
+  attachUser(app);
 
-    if (outcome.result === 'accepted') {
-      console.log(
-        `[config] ACCEPTED ver=${outcome.applied.ver} hash=${String(outcome.applied.hash).slice(0, 12)}…` +
-          (outcome.cancelledOverrides?.length
-            ? ` — cancelled ${outcome.cancelledOverrides.length} override(s): ${outcome.cancelledOverrides.join(', ')}`
-            : '')
-      );
-    } else {
-      // Log the decision point, not just the failure: an operator reading this
-      // needs to know WHY, and the field path is what makes it actionable.
-      console.warn(
-        `[config] REJECTED ${outcome.reason.code}` +
-          (outcome.reason.field ? ` at ${outcome.reason.field}` : '') +
-          ` — ${outcome.reason.detail} (still running ver ${outcome.applied.ver})`
-      );
-    }
-
-    publish(topics.ack, configAckPayload(outcome), { qos: 1, retain: false });
-    publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
-    publish(topics.health, healthPayload(), { qos: 0, retain: true });
-    return;
+  // Creates the first administrator if and only if the users table is empty.
+  // Fatal on failure — see bootstrapAdmin's own documentation for why there is
+  // no fallback credential and no HTTP path for this instead.
+  try {
+    const boot = await bootstrapAdmin(app.log);
+    if (!boot.created) app.log.info('users already exist — bootstrap skipped');
+  } catch (err) {
+    app.log.fatal(`bootstrap failed: ${err.message}`);
+    process.exit(1);
   }
 
-  if (topic === topics.cmd) {
-    const outcome = handleCommand(raw, state);
+  registerRoutes(app, { publisher, republishActiveConfig });
 
-    if (outcome.result === 'accepted') {
-      console.log(`[cmd] ACCEPTED ${outcome.id} — ${outcome.detail}`);
-    } else {
-      console.warn(
-        `[cmd] REJECTED ${outcome.reason.code}` +
-          (outcome.reason.field ? ` at ${outcome.reason.field}` : '') +
-          ` — ${outcome.reason.detail}`
-      );
-    }
-
-    publish(topics.ack, commandAckPayload(outcome), { qos: 1, retain: false });
-    publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
-  }
-});
-
-client.on('reconnect', () => {
-  reconnectCount += 1;
-  console.log(`[mqtt] reconnecting (attempt ${reconnectCount})`);
-});
-
-client.on('error', (err) => console.error('[mqtt] error:', err.message));
-client.on('offline', () => {
-  console.warn('[mqtt] offline');
-  stopPublishing();
-});
-
-// ---------------------------------------------------------------------------
-// Publish loops
-// ---------------------------------------------------------------------------
-
-const startPublishing = () => {
-  stopPublishing();
-
-  timers.push(
-    setInterval(() => {
-      env.step();
-      publish(topics.telemetry, telemetryPayload(), { qos: 0, retain: false });
-    }, config.telemetryIntervalS * 1000)
-  );
-
-  timers.push(
-    setInterval(() => {
-      publish(topics.health, healthPayload(), { qos: 0, retain: true });
-    }, config.healthIntervalS * 1000)
-  );
-
-  // ── Override expiry ───────────────────────────────────────────────────────
-  //
-  // EDGE-LOCAL, AND THAT IS THE WHOLE POINT. This timer does not wait for a
-  // release command, does not re-fetch from the server, and is unaffected by
-  // MQTT dropping mid-override. An unreachable server never means a stuck
-  // actuator.
-  //
-  // The consequence worth arguing in the thesis: every command in this system
-  // is inherently temporary, so the blast radius of any command — human or
-  // AI-issued — is bounded BY DESIGN rather than by trust. Nothing has to
-  // behave correctly for an override to end; the timer simply expires.
-  timers.push(
-    setInterval(() => {
-      if (state.estop.active) return; // nothing to expire; the stop is not a timer
-      const expired = state.expireOverrides();
-      if (expired.length > 0) {
-        console.log(`[override] expired, back to autonomous control: ${expired.join(', ')}`);
+  // Serve the built dashboard from the same origin as the API, so one container
+  // serves both and there is no CORS surface in production. Absent in
+  // development, where Vite serves the frontend and proxies /api here.
+  const publicDir = new URL('../public', import.meta.url).pathname;
+  if (existsSync(publicDir)) {
+    await app.register(import('@fastify/static'), { root: publicDir, prefix: '/' });
+    // The dashboard is a single-page app: any non-API path is a client route
+    // and must return index.html rather than a 404, or a refresh on /config
+    // would fail.
+    app.setNotFoundHandler((request, reply) => {
+      if (request.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'not_found', message: 'no such endpoint' });
       }
-      // Publish promptly on any override change so the dashboard reflects it
-      // without waiting for the next scheduled actuator message.
-      if (state.takeDirty()) {
-        publish(topics.actuators, actuatorPayload(), { qos: 1, retain: true });
-      }
-    }, 1000)
+      return reply.sendFile('index.html');
+    });
+    app.log.info('serving dashboard from /public');
+  } else {
+    app.log.warn('no built dashboard found — run `npm run build` in ../frontend');
+  }
+
+  // Sweep expired proposals every minute. Proposals carry a TTL; without this
+  // they would sit in PROPOSED indefinitely.
+  const sweeper = setInterval(async () => {
+    try {
+      const n = await configService.expireStaleProposals();
+      if (n > 0) app.log.info(`expired ${n} stale proposal(s)`);
+    } catch (err) {
+      app.log.error(`proposal sweep failed: ${err.message}`);
+    }
+  }, 60000);
+  sweeper.unref();
+
+  await app.listen({ port: config.port, host: '0.0.0.0' });
+  app.log.info(
+    `sdigf-backend listening on :${config.port} for ${config.ghName} (${config.ghId})`
   );
+}
 
-  console.log(
-    `[mock] publishing telemetry every ${config.telemetryIntervalS}s, health every ${config.healthIntervalS}s, ` +
-      `checking override expiry every 1s`
-  );
-};
+async function shutdown(signal) {
+  app.log.info(`${signal} received, shutting down`);
+  try {
+    await app.close();
+    if (publisher) await publisher.close();
+    await closePools();
+  } catch (err) {
+    app.log.error(`shutdown error: ${err.message}`);
+  }
+  process.exit(0);
+}
 
-const stopPublishing = () => {
-  timers.forEach(clearInterval);
-  timers = [];
-};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
-// ---------------------------------------------------------------------------
-// Shutdown
-// ---------------------------------------------------------------------------
-
-// On a clean stop, publish offline explicitly rather than relying on the last
-// will — the will only fires on an *ungraceful* disconnect. Stage 4 adds a way
-// to force the ungraceful path for demo purposes.
-//
-// Overrides are NOT persisted, matching contract §3.7 rule 5: overrides do not
-// survive reboot. An operator override silently persisting across a power cut
-// is how a pump ends up running unattended.
-const shutdown = () => {
-  console.log('[mock] shutting down');
-  stopPublishing();
-  publish(
-    topics.status,
-    { v: config.schemaVersion, state: 'offline' },
-    { qos: 1, retain: true }
-  );
-  setTimeout(() => client.end(true, () => process.exit(0)), 300);
-};
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
+start().catch((err) => {
+  app.log.fatal(`startup failed: ${err.message}`);
+  process.exit(1);
+});

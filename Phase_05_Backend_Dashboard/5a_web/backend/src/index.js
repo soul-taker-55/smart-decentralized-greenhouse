@@ -27,6 +27,7 @@ import { attachUser } from './auth.js';
 import { bootstrapAdmin } from './services/identity-service.js';
 import * as configService from './services/config-service.js';
 import * as commandService from './services/command-service.js';
+import * as estopService from './services/estop-service.js';
 
 const app = Fastify({
   logger: {
@@ -102,6 +103,54 @@ async function start() {
   });
 
   // Correlate device acks with the commands and configs that caused them.
+  /**
+   * The edge reporting its own emergency stop state.
+   *
+   * up/actuators is a retained state topic the device already uses to report
+   * facts about itself, so a local trigger arrives here as an ordinary state
+   * change — no new topic, no new semantics. On reconnect the retained message
+   * arrives on subscribe, so the same handler covers both the live case and the
+   * network-was-down case.
+   *
+   * `retrospective` is decided by comparing the device's reported `since`
+   * against now: a stop that began materially before the server saw it is one
+   * the server did not witness, and the record must say so.
+   */
+  publisher.on('actuators', async (payload) => {
+    if (payload?.estop === undefined) return;
+    const deviceStopped = payload.estop === true;
+
+    try {
+      const server = await estopService.getServerEstop();
+      const serverStopped = server.state === 'stopped';
+      if (deviceStopped === serverStopped) return;
+
+      // The device carries `since` on up/health; up/actuators reports the flag
+      // only. Prefer a health-reported since when available, else fall back to
+      // now — and mark it retrospective only when we can show a real gap.
+      const health = publisher.getState().lastSeen?.health;
+      const deviceSince = health?.estop?.since ?? null;
+      const nowS = Math.floor(Date.now() / 1000);
+      const retrospective = deviceSince != null && nowS - deviceSince > 60;
+
+      const r = await estopService.observeLocalEstop({
+        state: deviceStopped ? 'stopped' : 'clear',
+        deviceSince,
+        retrospective,
+        publisher,
+        logger: app.log,
+      });
+      if (r.recorded) {
+        app.log.warn(
+          `local emergency stop ${r.state} recorded from device report ` +
+            `(seq ${r.seq}${r.retrospective ? ', retrospective' : ''})`
+        );
+      }
+    } catch (err) {
+      app.log.error(`failed to record device-reported estop: ${err.message}`);
+    }
+  });
+
   publisher.on('ack', async (payload) => {
     try {
       const updated = await commandService.recordAck(payload);

@@ -123,7 +123,13 @@ export default function StatusStrip({ status, estop }) {
       {estop?.requested?.state === 'stopped' && (
         <div className="strip-cell estop-cell">
           <span className="k">Emergency</span>
-          <span className="v">{estop.confirmed ? 'STOPPED' : 'STOP REQUESTED'}</span>
+          <span className="v">
+            {estop.requested?.source === 'local'
+              ? 'STOPPED — LOCAL'
+              : estop.confirmed
+                ? 'STOPPED'
+                : 'STOP REQUESTED'}
+          </span>
         </div>
       )}
 

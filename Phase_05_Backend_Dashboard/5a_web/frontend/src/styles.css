@@ -2012,3 +2012,12 @@ body {
 .btn.danger-text:hover:not(:disabled) {
   background: rgba(224, 107, 107, 0.12);
 }
+
+/* The server did not witness this stop; it learned of it on reconnect. Muted
+   rather than alarming — it qualifies the record, it is not a second alarm. */
+.estop-retro {
+  font-size: 10.5px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-style: italic;
+}

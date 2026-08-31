@@ -74,7 +74,7 @@ export class EdgeState {
      * the stop from the broker replaying an old clear, and the second would
      * silently unhalt a greenhouse someone deliberately stopped.
      */
-    this.estop = { active: false, seq: 0, since: null, reason: null, by: null };
+    this.estop = { active: false, seq: 0, since: null, source: null, reason: null, by: null };
   }
 
   // ── Config ────────────────────────────────────────────────────────────────
@@ -92,7 +92,7 @@ export class EdgeState {
    *
    * @returns {{applied: boolean, ignored?: string}}
    */
-  setEstop({ seq, state, reason, by }) {
+  setEstop({ seq, state, reason, by, source }) {
     // Monotonic. Equal counts as stale: a stop already in force has nothing to
     // add, and re-applying would reset `since` and lose when it actually began.
     if (seq <= this.estop.seq) {
@@ -103,7 +103,22 @@ export class EdgeState {
     this.estop = {
       active,
       seq,
-      since: active ? Date.now() : null,
+      // PRESERVE `since` when the state is unchanged.
+      //
+      // A server catch-up publish for an already-active stop is the server
+      // adopting a seq, not a fresh trigger — contract v4 §3.9. The original
+      // trigger time is the true one and `since` is the answer to "how long has
+      // this been stopped."
+      //
+      // The guard above only covers seq <= stored. A NEWER seq for an already
+      // active stop falls through to here, which is exactly the path the local
+      // trigger's catch-up publish creates.
+      since: active ? (this.estop.active ? this.estop.since : Date.now()) : null,
+      // Origin of the ACTIVE stop, persisted alongside it. On real hardware
+      // this lives in NVS: it governs whether a local clear is permitted, so a
+      // stop must not become locally clearable merely because the controller
+      // restarted.
+      source: active ? (source ?? this.estop.source ?? 'remote') : null,
       reason: reason ?? null,
       by: by?.user ?? null,
     };

@@ -705,6 +705,7 @@ That is the dividing line in this contract, and it is worth stating plainly:
   "gh": "gh1",
   "seq": 7,
   "state": "stopped",
+  "source": "remote",
   "by": { "user": "eng-a1b2c3d4", "role": "engineer" },
   "reason": "water on the floor near the pump"
 }
@@ -717,7 +718,8 @@ That is the dividing line in this contract, and it is worth stating plainly:
 | `gh` | string | Greenhouse id. Rejected if it does not match. |
 | `seq` | int | **Monotonic.** The replay defence — see below. |
 | `state` | string | `stopped` or `clear`. |
-| `by` | object | Who acted. Session-attributed, not signed — see below. |
+| `source` | string | `remote` or `local`. Where the stop ORIGINATED — see below. |
+| `by` | object\|null | Identified actor. Session-attributed, not signed. **NULL when `source` is `local`** — see below. |
 | `reason` | string\|null | Free text. Optional on stop, expected on clear. |
 
 #### `seq` is monotonic, and that is the whole replay defence
@@ -730,6 +732,150 @@ unhalt a greenhouse someone deliberately stopped.
 The device stores the highest `seq` it has seen, in NVS, alongside the state. A
 message with `seq` less than or equal to the stored value is **ignored, not
 acked** — the same rule `down/config` applies to `ver`, for the same reason.
+
+#### Emergency stop may now ORIGINATE at the edge — AMENDMENT 2026-08-27
+
+A local emergency trigger (LCD + rotary encoder) means stop state can begin at
+the edge and be reported upward, rather than only being commanded downward. That
+is a new direction of travel and it is why `source` exists.
+
+**Why a local trigger at all:** if the network is down, someone standing at the
+enclosure watching a pump flood it has no software path to stop it. The local
+trigger is the one that works when everything else does not.
+
+#### THE EDGE NEVER ALLOCATES A `seq`
+
+The single most likely place for subtle breakage, and the resolution is to not
+create the ambiguity. If both server and edge could allocate, two writers could
+produce the same number — a local stop at `seq 8` and a remote stop at `seq 8`,
+each rejecting the other as stale, each believing it won.
+
+**The edge originates the STOP OR CLEAR. The server originates every `seq`.**
+
+1. The operator acts at the encoder. The edge applies the change to NVS
+   immediately, **retaining its stored `seq`**. It has received no state message
+   and does not invent one.
+2. The edge publishes `up/actuators` immediately. That topic already carries
+   `estop`, is already retained, and is already the device reporting facts about
+   itself — a state change published on the state topic. No new topic, no new
+   semantics, no overloading of `up/ack`, which is a response to a
+   server-initiated action and would be the wrong vehicle for an unsolicited
+   event.
+3. The server observes `estop` disagreeing with its own record, allocates the
+   next `seq`, and publishes `down/estop` with `source: 'local'`, `by: null`.
+4. The edge accepts that as newer and adopts the authoritative number.
+
+The single-allocator invariant is preserved. Replay defence is untouched.
+
+**Backstop:** if the immediate publish is lost — and the local trigger's most
+important scenario is precisely *the network is down* — the device reconciles on
+reconnect via retained state and the next health message.
+
+**The honest window:** between the local action and server observation the two
+disagree. Bounded, and already visible, because the dashboard reports
+device-declared state separately from server-requested state.
+
+#### `since` MUST NOT RESET ON A CATCH-UP PUBLISH — normative
+
+A `down/estop` whose `state` already matches the device's current state **must
+not reset `since`**. Step 3 above is the server adopting a `seq`, not issuing a
+fresh order. The original trigger time is the true one, and `since` is the
+answer to "how long has this been stopped."
+
+Idempotent in effect; the timestamp is what matters.
+
+#### CLEARING IS ASYMMETRIC BY ORIGIN, NOT BY CAPABILITY
+
+| Stop originated | Clearable locally | Clearable remotely |
+|---|---|---|
+| **local** (encoder) | **yes** | yes |
+| **remote** (dashboard) | **no** | yes, engineer only |
+
+An earlier draft of this amendment said local trigger yes, local clear never.
+**That rule contained a deadlock** and is recorded here so it is not
+reintroduced: network down, someone stops the greenhouse at the encoder, and
+clearing requires the dashboard, which requires the network. The greenhouse
+stays stopped with a person standing next to it until the network returns —
+which may be an hour or a week.
+
+That is not fail-safe. It is a system anyone with physical access can disable
+and nobody can re-enable.
+
+The corrected rule relocates the authority asymmetry to where it actually
+protects something. A **remote** stop was a decision by an identified person, and
+physical access must not override an identified decision. A **local** stop was
+already unattributed, so allowing a local clear weakens nothing that was not
+already weak.
+
+**A local clear MUST be harder than a local trigger.** If triggering is a
+two-second hold, clearing is a hold plus explicit LCD confirmation. The
+stopping-easy / resuming-deliberate asymmetry survives without identity — it
+moves from *who* to *how much friction*.
+
+#### `source` IS PERSISTED DEVICE STATE, NOT A MESSAGE ANNOTATION
+
+The device persists `active`, `seq`, `since`, **and `source`** to NVS.
+
+`source` governs local clearing, so it must survive a reboot. A stop that became
+locally clearable merely because the controller restarted would be a silent
+authority downgrade.
+
+  - `source: 'local'`  → a local clear is accepted
+  - `source: 'remote'` → a local clear is **REFUSED**; the LCD states why
+
+**⚠ THIS RULE HAS NO SERVER-SIDE ENFORCEMENT.** It is enforced entirely in
+firmware. Nothing on the server can detect or prevent a device that gets it
+wrong. Phase 02/03 implementation must treat it as a specified requirement in
+its own right, not as an inherited detail — if firmware gets it wrong, nothing
+catches it.
+
+#### THREE ATTRIBUTION TIERS
+
+| Tier | Applies to | Property |
+|---|---|---|
+| **SIGNATURE** | Config approvals only | Cryptographically unforgeable |
+| **SESSION** | Everything else remote | Authenticated, administratively erasable |
+| **PHYSICAL** | Local trigger and local clear | **No identifiable actor, by design** |
+
+A locally-originated action records `actor_id: null`, `actor_role: 'local'`,
+`source: 'local'`.
+
+**`local` is not a role.** Nobody logs in as `local`; it has no capability
+grants and appears in no permission matrix. It is an attribution *source*.
+
+**Physical access is its own authorization tier** — the person had to be
+standing in the room. This is the only action in the system with no identifiable
+actor, and that is a stated design position rather than a shortfall. No
+permission check is built for the local trigger, deliberately: the encoder is
+not a user.
+
+#### RETROSPECTIVE RECORDS — the server may learn of a stop it did not witness
+
+When the server learns of a local action on reconnect, the record carries **both
+timestamps, never collapsed**:
+
+```json
+{
+  "seq": 9, "state": "stopped", "source": "local",
+  "device_since": 1735689780,
+  "observed_at":  1735692060,
+  "retrospective": true
+}
+```
+
+so the record can say *"device reports stopped at 14:03; server learned at 14:41
+on reconnect."*
+
+**Idempotency is keyed on `device_since`, never on observation time.** A flaky
+network means repeated reconnects re-reporting the same stop; observation time
+changes each time, so keying on it would produce one record per reconnect. The
+device's reported start time is the only stable identifier available.
+
+**LIMITATION, to be stated plainly rather than footnoted:** the retrospective
+record depends on the device's own report of when the stop began, which the
+server cannot verify. The system can prove the record was not altered after the
+fact; it cannot prove the originally reported time was true. This is the Oracle
+Problem in miniature and belongs beside that discussion.
 
 #### Device behaviour — normative
 
@@ -1302,6 +1448,7 @@ bytes. That is expected. Verification against the fixed public key is what must 
 | 2026-08-25 | §5: canonicalization scope widened from `cfg` to the signed object; the rules themselves unchanged |
 | 2026-08-25 | §5: trust-model section rewritten. Residual gaps stated explicitly — deferred key distribution, firmware that may not ship, and administrator-deletable ledger history |
 | 2026-08-25 | §3.8: `down/keys` reserved — signed key list under a device-held root key, with the bootstrap case noted. Deliberately not fully specified |
+| 2026-08-27 | §3.9 AMENDED — `source` field (`remote`/`local`) and edge origination. Emergency stop may now originate at the edge via a local encoder trigger and be reported upward. The edge NEVER allocates a `seq` — it originates the stop or clear, the server allocates every seq, so the single-allocator invariant and the replay defence are untouched. Clearing is asymmetric BY ORIGIN: a locally-triggered stop may be cleared locally, because requiring remote clearance would render a locally-stopped system unrecoverable during exactly the network outage that motivated the local trigger; a remotely-triggered stop may be cleared only remotely, preserving an identified decision against physical override. `source` is NVS-PERSISTED DEVICE STATE, not a message annotation, since it governs local clearing and must survive a reboot. `since` must not reset on a catch-up publish. Third attribution tier (PHYSICAL) introduced: local actions carry no identifiable actor by design. ADDITIVE — no existing field or behaviour changes |
 | 2026-08-26 | §3.9 ADDED — `down/estop`. Emergency stop could not be expressed as a `down/cmd`: four of §3.7's reconciliation rules (bounded ttl, auto-expiry, no reboot survival, cancelled by new config) state the opposite of what a sticky stop requires. Own retained topic, monotonic `seq` for replay defence, NVS-persisted, cleared only by an explicit higher-seq clear. Trigger by engineer or farmer, clear by engineer only. Session-attributed rather than signed, so a missing key cannot prevent halting a greenhouse. ADDITIVE — no existing field or behaviour changes |
 | 2026-08-26 | §5: the normative verification table contradicted the warning directly above it. "Node / WebCrypto — verify over the 32-byte digest as the data" instructs exactly the double-hash the warning forbids: WebCrypto has no prehashed mode. Split into separate WebCrypto and Node.js rows, both stating that signing and verification happen over `cfg_canonical` bytes. The §5 flow table ("signs the hash") carried the same defect and is corrected. Verified against a faithful mbedTLS model: following the old wording, the browser self-check passes and the ESP32 rejects. Also §2: `setBufferSize(1024)` corrected to 2048, which had contradicted §3.6 since the payload sizing was measured |
 | 2026-08-25 | §5: test vector 2 — full DER hex added, and prehashed verification stated explicitly. The elided form was copyable-but-wrong, and the doc never said the signature is over the digest directly rather than over a re-hash of it |

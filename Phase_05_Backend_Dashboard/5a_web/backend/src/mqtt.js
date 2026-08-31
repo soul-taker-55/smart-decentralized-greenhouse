@@ -422,7 +422,7 @@ export class MqttPublisher {
    * latency to the one operation where latency is least acceptable. The device
    * acks, and the dashboard shows requested-but-unconfirmed until it does.
    */
-  async publishEstop({ seq, state, reason, by }) {
+  async publishEstop({ seq, state, reason, by, source = 'remote' }) {
     if (!this.client) throw new PublishError('MQTT client not connected');
 
     const envelope = {
@@ -431,6 +431,11 @@ export class MqttPublisher {
       gh: config.ghId,
       seq,
       state,
+      // Where the stop ORIGINATED. `by` answers which identified person; these
+      // are two different questions and overloading one to carry the other
+      // would make a consumer reading by.role for authorisation see a value
+      // that is not a role.
+      source,
       by: by ? { user: by.id, role: by.role } : null,
       reason: reason ?? null,
     };

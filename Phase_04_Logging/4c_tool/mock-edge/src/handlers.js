@@ -248,7 +248,7 @@ export function handleEstop(raw, state, ghId) {
     return reject(REJECT.PARSE, 'state', 'must be stopped or clear');
   }
 
-  const outcome = state.setEstop({ seq, state: msg.state, reason: msg.reason, by: msg.by });
+  const outcome = state.setEstop({ seq, state: msg.state, reason: msg.reason, by: msg.by, source: msg.source });
 
   // A stale replay is IGNORED, not acked. Acking a redelivered retained message
   // every reconnect would fill the audit trail with noise that looks like
