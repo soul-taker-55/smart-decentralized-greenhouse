@@ -41,6 +41,7 @@
 
 import { createHash, createPublicKey, verify as cryptoVerify } from 'node:crypto';
 import { query, transaction } from '../db.js';
+import { appendToLedger } from './ledger-service.js';
 
 export class KeyError extends Error {
   constructor(message, code = 'key_error') {
@@ -159,15 +160,21 @@ export async function registerKey({ userId, publicKeyHex, actor }) {
       [keyId, userId, hex]
     );
 
-    await client.query(
+    // PHASE 07: chained STRICTLY, in this transaction. A key registration that
+    // cannot be chained must not happen — the key is the thing every later
+    // approval signature is verified against.
+    const event = await client.query(
       `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-       VALUES ('gh1', 'KEY_REGISTERED', 'user_keys', 0, $1, $2, $3)`,
+       VALUES ('gh1', 'KEY_REGISTERED', 'user_keys', 0, $1, $2, $3)
+       RETURNING id`,
       [
         actor?.id ?? userId,
         actor?.role ?? 'engineer',
         JSON.stringify({ keyId, userId }),
       ]
     );
+
+    await appendToLedger(client, event.rows[0].id);
 
     return inserted.rows[0];
   });

@@ -21,6 +21,7 @@ import Fastify from 'fastify';
 import { config } from './config.js';
 import { assertFrozenVector } from './canon.js';
 import { checkConnections, closePools } from './db.js';
+import { assertTimeVector } from './services/ledger-service.js';
 import { MqttPublisher } from './mqtt.js';
 import { registerRoutes } from './routes.js';
 import { attachUser } from './auth.js';
@@ -94,6 +95,39 @@ async function start() {
     // Not fatal. The dashboard degrades to empty state, which is the expected
     // condition right now anyway with the mock stopped.
     app.log.warn('telemetry database unavailable — dashboard will show empty state');
+  }
+
+  // ---- 2b. Ledger time-format integrity ------------------------------------
+  //
+  // The SECOND frozen vector, and the reason it lives here rather than beside
+  // assertFrozenVector() above: its format is defined in SQL, so proving it
+  // requires the database, which is only known reachable at this point.
+  //
+  // FATAL, exactly like canonicalization drift, and for the same asymmetry: a
+  // warning is a defence that requires somebody to be reading logs at the moment
+  // it fires. If the format has drifted, every link written afterwards is
+  // silently wrong, and the damage surfaces weeks later as universal
+  // verification failure — at which point drift and tampering are
+  // indistinguishable. That is the integrity mechanism producing a false
+  // positive that cannot be told from a true one, which is worse than having no
+  // check at all.
+  //
+  // The cost is low for a structural reason: THE EDGE TIER IS AUTONOMOUS. A
+  // backend that refuses to start cannot endanger the plants — the ESP32 keeps
+  // running its NVS config, keeps its actuators controlled, and keeps its
+  // emergency stop enforceable. What is lost is the dashboard and config
+  // pushes. This choice would be wrong in a system where the server sat in the
+  // control path; it is right here BECAUSE of a property deliberately built.
+  try {
+    await assertTimeVector();
+    app.log.info('ledger time format verified against the frozen vectors');
+  } catch (err) {
+    app.log.fatal(
+      `LEDGER TIME FORMAT DRIFT — ${err.message} ` +
+        `Refusing to start: every link written under a drifted format would fail ` +
+        `verification indistinguishably from tampering.`
+    );
+    process.exit(1);
   }
 
   // ---- 3. Broker -----------------------------------------------------------

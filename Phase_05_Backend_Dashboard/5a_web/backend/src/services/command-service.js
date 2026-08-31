@@ -28,6 +28,7 @@
 import { query, transaction } from '../db.js';
 import { config } from '../config.js';
 import { newCommandId } from './config-service.js';
+import { appendToLedger } from './ledger-service.js';
 
 /** Actuator keys, contract §3.2. `canopy` is positional and handled separately. */
 export const RELAY_TARGETS = [
@@ -148,9 +149,14 @@ export async function issueCommand(cmd, { actor = null, via = 'dashboard', publi
       ]
     );
 
-    await client.query(
+    // PHASE 07: chained STRICTLY, in this transaction — BEFORE the publish
+    // below. A manual command that cannot be chained must not be issued: unlike
+    // an emergency stop, nothing about a manual override is safety-critical, so
+    // there is no reason to prefer an unaudited action over a failed one.
+    const event = await client.query(
       `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-       VALUES ($1, $2, 'commands', $3, $4, $5, $6)`,
+       VALUES ($1, $2, 'commands', $3, $4, $5, $6)
+       RETURNING id`,
       [
         config.ghId,
         cmd.action === 'release' ? 'COMMAND_RELEASED' : 'COMMAND_ISSUED',
@@ -171,6 +177,8 @@ export async function issueCommand(cmd, { actor = null, via = 'dashboard', publi
         }),
       ]
     );
+
+    await appendToLedger(client, event.rows[0].id);
 
     return inserted.rows[0];
   });

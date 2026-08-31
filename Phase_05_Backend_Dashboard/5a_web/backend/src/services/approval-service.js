@@ -33,6 +33,7 @@
 import { query, transaction } from '../db.js';
 import { config } from '../config.js';
 import { verifySignature, getActiveKey } from './key-service.js';
+import { appendToLedger } from './ledger-service.js';
 
 export class ApprovalError extends Error {
   constructor(message, code = 'approval_failed') {
@@ -114,9 +115,13 @@ export async function setPolicy({ thresholdM, proposalTtlHours, actor }) {
       [thresholdM, proposalTtlHours ?? null, actor?.id ?? null, config.ghId]
     );
 
-    await client.query(
+    // PHASE 07: chained STRICTLY. A threshold change is the single highest-value
+    // record in the trail — lowering M is how a quorum requirement gets weakened —
+    // so it must not be possible for the change to land unchained.
+    const event = await client.query(
       `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-       VALUES ($1, 'APPROVAL_POLICY_CHANGED', 'none', 0, $2, $3, $4)`,
+       VALUES ($1, 'APPROVAL_POLICY_CHANGED', 'none', 0, $2, $3, $4)
+       RETURNING id`,
       [
         config.ghId,
         actor?.id ?? null,
@@ -130,6 +135,8 @@ export async function setPolicy({ thresholdM, proposalTtlHours, actor }) {
         }),
       ]
     );
+
+    await appendToLedger(client, event.rows[0].id);
 
     return updated.rows[0];
   });
@@ -294,10 +301,17 @@ export async function castVote({ profileId, decision, signatureHex, reason, acto
       throw err;
     }
 
-    await client.query(
+    // PHASE 07: chained STRICTLY, and this is the ONLY site in the system that
+    // writes a non-null signature_ref. The approval row it references was
+    // inserted a few lines above IN THIS TRANSACTION, so resolveSignature finds
+    // it and the link carries the resolved signature object. That is what makes
+    // an edit to config_approvals break the chain — the cross-table reach the
+    // chain-scope decision was made for.
+    const event = await client.query(
       `INSERT INTO server_events
          (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail, signature_ref)
-       VALUES ($1, $2, 'config_profiles', $3, $4, $5, $6, $7)`,
+       VALUES ($1, $2, 'config_profiles', $3, $4, $5, $6, $7)
+       RETURNING id`,
       [
         config.ghId,
         decision === 'approve' ? 'CONFIG_APPROVED' : 'CONFIG_REJECTED',
@@ -315,6 +329,8 @@ export async function castVote({ profileId, decision, signatureHex, reason, acto
         String(inserted.rows[0].id),
       ]
     );
+
+    await appendToLedger(client, event.rows[0].id);
 
     // Re-count inside the transaction, so the status transition is decided from
     // the same snapshot the vote was written into.

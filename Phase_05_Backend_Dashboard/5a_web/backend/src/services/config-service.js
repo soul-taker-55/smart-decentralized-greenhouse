@@ -32,6 +32,7 @@ import { buildSignedContent } from '../canon.js';
 import { assertValidConfig, incompleteFields } from '../config-schema.js';
 import { query, transaction } from '../db.js';
 import { config } from '../config.js';
+import { appendToLedger } from './ledger-service.js';
 
 /** Raised when a lifecycle transition is not permitted from the current state. */
 export class LifecycleError extends Error {
@@ -83,11 +84,21 @@ function assertTransition(from, to, id) {
 /**
  * Record a structured event. Called inside the same transaction as the change it
  * describes, so an event without its change (or the reverse) is not possible.
+ *
+ * PHASE 07: the event is also chained here, in the SAME transaction, STRICTLY.
+ * If the ledger append throws, the caller's whole transaction rolls back and the
+ * config change does not happen. That is intended: for configuration lifecycle
+ * events the audit trail IS the product, and a silently unaudited config change
+ * is worse than a failed one.
+ *
+ * This one function covers five event types — every caller already passes a
+ * transaction client, so there is exactly one place to chain them.
  */
 async function recordEvent(client, { eventType, refId, actor, detail, refTable = 'config_profiles' }) {
-  await client.query(
+  const inserted = await client.query(
     `INSERT INTO server_events (gh_id, event_type, ref_table, ref_id, actor_id, actor_role, detail)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING id`,
     [
       config.ghId,
       eventType,
@@ -98,6 +109,8 @@ async function recordEvent(client, { eventType, refId, actor, detail, refTable =
       detail ? JSON.stringify(detail) : null,
     ]
   );
+
+  await appendToLedger(client, inserted.rows[0].id);
 }
 
 function rowToProfile(row) {
