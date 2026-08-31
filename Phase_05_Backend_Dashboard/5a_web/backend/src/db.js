@@ -26,6 +26,18 @@ const { Pool } = pg;
  * Number.MAX_SAFE_INTEGER. Our ids will not, and silently getting "1" where the
  * code expects 1 causes comparison bugs that pass tests and fail in the browser.
  * Parsing them as numbers is safe here and removes a whole class of surprise.
+ *
+ * ⚠ THE PHASE 07 LEDGER DEPENDS ON THIS LINE. DO NOT REMOVE IT.
+ *
+ * seq, event_id and ref_id are part of the HASHED CONTENT of every ledger link.
+ * Without this parser they arrive as STRINGS, canonicalize() quotes them, and
+ * every hash the writer produces changes — while NOTHING RAISES AN ERROR. The
+ * writer keeps emitting well-formed links that no longer match anything already
+ * stored, and the damage only surfaces later as wholesale verification failure
+ * that is indistinguishable from tampering.
+ *
+ * Pinned by test/ledger-link.test.js ("INT8 PIN"), which asserts that a string
+ * id and a numeric id hash differently.
  */
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 
