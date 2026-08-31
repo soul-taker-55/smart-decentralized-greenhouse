@@ -31,6 +31,7 @@
 
 import { query, transaction } from '../db.js';
 import { config } from '../config.js';
+import { appendBestEffort } from './ledger-service.js';
 
 export class EstopError extends Error {
   constructor(message, code = 'estop_error') {
@@ -98,7 +99,7 @@ export async function getServerEstop(ghId = config.ghId) {
  *
  * @param {'stopped'|'clear'} state
  */
-export async function setEstop({ state, reason, actor, publisher }) {
+export async function setEstop({ state, reason, actor, publisher, logger = console }) {
   if (!['stopped', 'clear'].includes(state)) {
     throw new EstopError('state must be stopped or clear', 'bad_state');
   }
@@ -180,6 +181,49 @@ export async function setEstop({ state, reason, actor, publisher }) {
     publishError = err.message;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PHASE 07 — BEST-EFFORT LEDGER APPEND. THE ONLY ONE IN THE SYSTEM.
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // AFTER the publish, and AWAITED.
+  //
+  // Why not strict, inside the transaction above: THE PUBLISH SITS OUTSIDE THAT
+  // TRANSACTION. A strict append that failed would roll it back, this function
+  // would throw, and publishEstop() would never run — a bug in the AUDIT layer
+  // would prevent a greenhouse from STOPPING.
+  //
+  //   "A halted greenhouse with a flagged audit gap is strictly better than a
+  //    running greenhouse with a clean chain."
+  //
+  // Why AFTER the publish rather than un-awaited alongside it: by this line the
+  // stop has already gone out and the greenhouse is halting independently of
+  // this server, so the append cannot block the stop — structurally, not by
+  // convention. What it could delay is the HTTP response, which is a UX concern
+  // of a few bounded milliseconds and materially smaller than what the rule
+  // exists to prevent. Firing it un-awaited would trade those milliseconds for
+  // an unhandled rejection and a log line nobody reads — a SILENT failure in
+  // the one path chosen for best-effort precisely BECAUSE failures here must
+  // surface. Awaiting preserves the reporting that made best-effort acceptable.
+  //
+  // appendBestEffort never throws; it returns { appended: false, error }. The
+  // try/catch is belt-and-braces: an audit-layer exception must NEVER reach the
+  // operator as an apparent e-stop failure. The stop succeeded. The record is
+  // flagged. The response says both.
+  let chained = { appended: false, error: null };
+  try {
+    chained = await appendBestEffort(record.id, logger);
+  } catch (err) {
+    chained = { appended: false, error: err.message };
+    logger.error?.({ err: err.message, eventId: record.id }, 'ledger: e-stop append threw');
+  }
+  if (!chained.appended) {
+    logger.warn?.(
+      `SDIGF_ESTOP_UNCHAINED seq=${seq} state=${state} event_id=${record.id} — ` +
+        `the stop was published; the audit link was NOT written. verifyChain will ` +
+        `report UNCHAINED_EVENT until backfillLedger reconciles it.`
+    );
+  }
+
   return {
     seq,
     state,
@@ -190,6 +234,10 @@ export async function setEstop({ state, reason, actor, publisher }) {
     publishError,
     // The server asked. Whether the device complied is reported by the device.
     deviceConfirmed: false,
+    // Reported, never thrown. An operator seeing chained:false knows the stop
+    // happened AND that the trail has a flagged gap — the two facts kept apart.
+    chained: chained.appended,
+    chainError: chained.error ?? null,
   };
 }
 
@@ -309,6 +357,29 @@ export async function observeLocalEstop({ state, deviceSince, retrospective = fa
       `retrospective=${retrospective} — originated at the enclosure, no identified actor`
   );
 
+  // PHASE 07 — best-effort, same reasoning as setEstop above.
+  //
+  // One thing is different here and must be said plainly rather than left
+  // implicit in the `retrospective` flag: THIS LINK DESCRIBES SOMETHING THE
+  // SERVER DID NOT WITNESS. The chain proves the record was not altered after
+  // it was written. It does NOT prove the device's reported device_since was
+  // true — that rests entirely on the device's own account, which the server
+  // cannot verify. A different claim from the chain's usual one, and the Oracle
+  // Problem in miniature.
+  let chained = { appended: false, error: null };
+  try {
+    chained = await appendBestEffort(record.id, logger);
+  } catch (err) {
+    chained = { appended: false, error: err.message };
+    logger.error?.({ err: err.message, eventId: record.id }, 'ledger: local e-stop append threw');
+  }
+  if (!chained.appended) {
+    logger.warn?.(
+      `SDIGF_ESTOP_UNCHAINED seq=${seq} state=${state} source=local event_id=${record.id} — ` +
+        `observed and published; the audit link was NOT written.`
+    );
+  }
+
   return {
     recorded: true,
     seq,
@@ -320,6 +391,8 @@ export async function observeLocalEstop({ state, deviceSince, retrospective = fa
     at: record.time,
     published,
     publishError,
+    chained: chained.appended,
+    chainError: chained.error ?? null,
   };
 }
 
