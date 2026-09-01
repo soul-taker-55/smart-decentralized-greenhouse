@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { api } from '../api.js';
 
 /**
@@ -115,6 +116,141 @@ function when(t) {
   });
 }
 
+
+/**
+ * THE LEDGER PANEL.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════
+ * WHY THIS IS NOT A GREEN CHECKMARK
+ * ═══════════════════════════════════════════════════════════════════════════
+ *
+ * A panel reading "Chain OK" would assert something this system deliberately
+ * does not claim. tools/tamper-demo.mjs scenario 6 demonstrates a COMPLETE
+ * REWRITE FROM GENESIS that verification also reports as ok — an administrator
+ * deletes a range of events, rebuilds every subsequent link with the same
+ * builder the legitimate writer uses, and nothing is detectable, because the
+ * chain head is not anchored outside this system.
+ *
+ * So the result is stated IN WORDS, with its scope beside it at the same weight.
+ * The caveat is not a tooltip and not small print: a reader who takes one glance
+ * must come away with the bounded claim, not a reassuring symbol.
+ *
+ * NO FULL-SATURATION GREEN. That is reserved for reading quality, where it means
+ * "this number is current and trustworthy". A verification result is a different
+ * kind of fact and must not borrow that vocabulary. A failure uses red, because
+ * a broken chain IS an alarm.
+ *
+ * `realTimeFrom` is displayed always, never only on success. It is the honest
+ * boundary: links below it prove content integrity but assert their ordering
+ * retrospectively.
+ */
+function LedgerPanel() {
+  const [state, setState] = useState({ loading: true, data: null, error: null });
+
+  useEffect(() => {
+    let alive = true;
+    api
+      .verifyLedger()
+      .then((d) => alive && setState({ loading: false, data: d, error: null }))
+      .catch((e) => alive && setState({ loading: false, data: null, error: e.message }));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (state.loading) {
+    return (
+      <div className="card">
+        <div className="card-head">
+          <span className="label">Audit chain</span>
+        </div>
+        <p className="muted" style={{ padding: '0 14px 14px' }}>Verifying…</p>
+      </div>
+    );
+  }
+
+  if (state.error) {
+    return (
+      <div className="card">
+        <div className="card-head">
+          <span className="label">Audit chain</span>
+        </div>
+        <p className="muted" style={{ padding: '0 14px 14px' }}>
+          Could not verify the chain: {state.error}
+        </p>
+      </div>
+    );
+  }
+
+  const d = state.data;
+  const f = d.firstFailure;
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="label">Audit chain</span>
+        <span className="unit num">
+          {d.length} {d.length === 1 ? 'link' : 'links'}
+          {d.head ? ` · head ${d.head.seq}` : ''}
+        </span>
+      </div>
+
+      <div style={{ padding: '0 14px 14px' }}>
+        {/* THE RESULT — in words, never a symbol. */}
+        {d.ok ? (
+          <p style={{ margin: '0 0 10px' }}>
+            <strong>No alteration detected.</strong> Every link matches the records it
+            covers, and every recorded event has a link.
+          </p>
+        ) : (
+          <p style={{ margin: '0 0 10px', color: 'var(--red)' }}>
+            <strong>Alteration detected.</strong>{' '}
+            {f?.detail ?? 'The chain does not verify.'}
+            {f?.diff && Object.keys(f.diff).length > 0 && (
+              <>
+                {' '}Changed {Object.keys(f.diff).join(', ')}.
+              </>
+            )}
+          </p>
+        )}
+
+        {/* THE BOUNDARY — shown on success and failure alike. */}
+        <p className="muted" style={{ margin: '0 0 10px' }}>
+          {d.claim.realTimeFrom}
+        </p>
+
+        {/* THE SCOPE OF THE CLAIM — same weight as the result, not a tooltip. */}
+        <div
+          style={{
+            borderTop: '1px solid var(--line)',
+            paddingTop: 10,
+            fontSize: '0.85rem',
+            color: 'var(--muted)',
+          }}
+        >
+          <p style={{ margin: '0 0 6px' }}>
+            <strong style={{ color: 'var(--text)' }}>What this proves.</strong>{' '}
+            {d.claim.proves}
+          </p>
+          <p style={{ margin: 0 }}>
+            <strong style={{ color: 'var(--text)' }}>What it does not.</strong>{' '}
+            {d.claim.doesNotProve}
+          </p>
+        </div>
+
+        {d.unchainedEvents.length > 0 && (
+          <p style={{ marginTop: 10, color: 'var(--amber)' }}>
+            {d.unchainedEvents.length} recorded{' '}
+            {d.unchainedEvents.length === 1 ? 'event has' : 'events have'} no link. An
+            emergency stop is recorded and published before it is chained, so a gap here
+            is expected after an audit-layer failure and is reconciled, not lost.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ActivityPage({ events, loaded }) {
   const list = events?.events ?? [];
 
@@ -124,6 +260,8 @@ export default function ActivityPage({ events, loaded }) {
         <h1>Activity</h1>
         <span className="sub">What this server did and what the controller reported, in order</span>
       </div>
+
+      <LedgerPanel />
 
       {!loaded && <p className="muted">Loading…</p>}
 

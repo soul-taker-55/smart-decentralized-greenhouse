@@ -30,6 +30,7 @@ import * as identity from './services/identity-service.js';
 import * as keyService from './services/key-service.js';
 import * as approval from './services/approval-service.js';
 import * as estop from './services/estop-service.js';
+import * as ledger from './services/ledger-service.js';
 import { config } from './config.js';
 import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
 import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
@@ -625,6 +626,69 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
   app.get('/api/estop/history', { preHandler: requireCap(CAP.VIEW) }, async () => ({
     events: await estop.listEstopEvents({ limit: 20 }),
   }));
+
+  // ---------------------------------------------------------------------------
+  // Ledger
+  // ---------------------------------------------------------------------------
+  //
+  // CAP.VIEW — every authenticated role, INCLUDING ADMIN.
+  //
+  // The chain does not defend against an administrator READING it; it defends
+  // against an administrator ALTERING it undetectably. Hiding the result from
+  // admin would protect nothing — they hold database access and can run the
+  // verifier themselves — while making the audit result something only some
+  // staff can see, which is a strange property for an audit. Farmers and
+  // engineers seeing a broken chain is exactly the visibility this phase exists
+  // to create.
+  //
+  // Not public, though: verifyChain walks every link and re-serializes each
+  // one, so an unauthenticated endpoint would be a free way to make the server
+  // work.
+
+  /**
+   * Verify the hash chain and report what verification can and cannot establish.
+   *
+   * RECOMPUTED ON EVERY REQUEST, deliberately. At the current scale this is
+   * milliseconds, and the system accrues one config event per change plus a
+   * handful of commands per day, so it stays small for years. Caching would also
+   * introduce a subtle wrongness: a cached "ok" is a claim about the past
+   * presented as the present. If this ever becomes slow, the answer is a bounded
+   * range parameter, not a cache.
+   *
+   * The `claim` block is part of the response, not decoration. A caller that
+   * renders `ok` without it would be asserting something this endpoint does not
+   * establish — see scenario 6 of tools/tamper-demo.mjs, where a fully rewritten
+   * chain also reports ok.
+   */
+  app.get('/api/ledger/verify', { preHandler: requireCap(CAP.VIEW) }, async (_request, reply) => {
+    try {
+      const [result, head] = await Promise.all([ledger.verifyChain(), ledger.getHead()]);
+
+      return {
+        ...result,
+        head: head
+          ? { seq: Number(head.seq), entryHash: head.entry_hash, backfilled: head.backfilled }
+          : null,
+        claim: {
+          proves:
+            'Internal consistency: no single record was altered, deleted or reordered ' +
+            'after it was written, and no chained event is missing its link.',
+          doesNotProve:
+            'Authenticity of the history as a whole. A complete rewrite from genesis ' +
+            'cannot be detected, because the chain head is not anchored outside this ' +
+            'system. External anchoring is named future work and is not built.',
+          realTimeFrom:
+            result.realTimeFrom === null
+              ? 'No link was written in real time yet, so no ordering is proven.'
+              : `Links before ${result.realTimeFrom} prove content integrity but assert their ` +
+                `ordering retrospectively. From ${result.realTimeFrom} forward, ordering was ` +
+                `observed as it happened.`,
+        },
+      };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
 
   // ---------------------------------------------------------------------------
   // Signing keys

@@ -51,6 +51,12 @@ export const api = {
   clearEstop: (reason) => post('/api/estop/clear', { reason }),
   estopHistory: () => get('/api/estop/history'),
 
+  // ── ledger ──────────────────────────────────────────────────────────────
+  //
+  // Recomputed server-side on every call. Never cache the result here: a cached
+  // "ok" is a claim about the past presented as the present.
+  verifyLedger: () => get('/api/ledger/verify'),
+
   // ── keys ────────────────────────────────────────────────────────────────
   registerKey: (publicKey) => post('/api/keys', { publicKey }),
   myKey: () => get('/api/keys/mine'),
