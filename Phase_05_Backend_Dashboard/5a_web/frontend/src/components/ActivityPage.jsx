@@ -228,22 +228,38 @@ function LedgerPanel() {
           {d.claim.realTimeFrom}
         </p>
 
-        {/* THE SCOPE OF THE CLAIM — same weight as the result, not a tooltip. */}
+        {/* ── THE SCOPE OF THE CLAIM ────────────────────────────────────────
+         *
+         * FULL --text, NOT --muted. The first version of this panel dimmed this
+         * block, inheriting the muted styling of surrounding panels rather than
+         * deciding it. On the rendered page the result was that the eye landed
+         * on "No alteration detected" and could leave without the caveat — the
+         * requirement satisfied at HALF STRENGTH, which is worse than not at
+         * all, because it looks addressed and a checklist passes.
+         *
+         * Found by looking at the screenshot, not by review. Reviewing the code
+         * shows a caveat block present and correctly worded; only the rendered
+         * page shows it receding. Second defect of this class in the project,
+         * after the grid mismatch that made an active emergency stop render as
+         * nothing.
+         *
+         * The separator is --text-dim rather than --line for the same reason:
+         * at --line contrast the two paragraphs read as one block.
+         */}
         <div
           style={{
-            borderTop: '1px solid var(--line)',
-            paddingTop: 10,
-            fontSize: '0.85rem',
-            color: 'var(--muted)',
+            borderTop: '1px solid var(--muted)',
+            paddingTop: 12,
+            marginTop: 2,
+            fontSize: '0.9rem',
+            color: 'var(--text)',
           }}
         >
-          <p style={{ margin: '0 0 6px' }}>
-            <strong style={{ color: 'var(--text)' }}>What this proves.</strong>{' '}
-            {d.claim.proves}
+          <p style={{ margin: '0 0 8px' }}>
+            <strong>What this proves.</strong> {d.claim.proves}
           </p>
           <p style={{ margin: 0 }}>
-            <strong style={{ color: 'var(--text)' }}>What it does not.</strong>{' '}
-            {d.claim.doesNotProve}
+            <strong>What it does not.</strong> {d.claim.doesNotProve}
           </p>
         </div>
 
