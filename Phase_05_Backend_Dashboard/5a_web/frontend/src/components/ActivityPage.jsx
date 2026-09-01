@@ -149,10 +149,19 @@ function LedgerPanel() {
 
   useEffect(() => {
     let alive = true;
-    api
-      .verifyLedger()
-      .then((d) => alive && setState({ loading: false, data: d, error: null }))
-      .catch((e) => alive && setState({ loading: false, data: null, error: e.message }));
+    // api.js NEVER THROWS. Every call resolves to { data, error } — see the
+    // header of api.js, where that is stated as a deliberate choice: with
+    // nothing connected, a failed fetch is an ordinary state to render rather
+    // than an exception to handle.
+    //
+    // So the envelope must be DESTRUCTURED. Storing the whole resolved object as
+    // `data` puts the payload one level too deep, every field below reads as
+    // undefined, and the render throws — which React answers by unmounting the
+    // entire tree, blanking the page. A .catch() here would be dead code.
+    api.verifyLedger().then(({ data, error }) => {
+      if (!alive) return;
+      setState({ loading: false, data: error ? null : data, error });
+    });
     return () => {
       alive = false;
     };
