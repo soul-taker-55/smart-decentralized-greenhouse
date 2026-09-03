@@ -31,6 +31,8 @@ import * as keyService from './services/key-service.js';
 import * as approval from './services/approval-service.js';
 import * as estop from './services/estop-service.js';
 import * as ledger from './services/ledger-service.js';
+import * as provider from './services/provider-service.js';
+import { runChatTurn } from './services/chat-service.js';
 import { config } from './config.js';
 import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
 import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
@@ -44,6 +46,12 @@ function errorResponse(reply, err) {
   if (err.name === 'KeyError' || err.name === 'ApprovalError') {
     const status = { not_found: 404, already_voted: 409, self_approval: 403, bad_state: 409, no_key: 400, wrong_role: 403, key_in_use: 409, unsatisfiable: 409 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
+  }
+  if (err.name === 'ProviderError') {
+    // The service sets its own status: 503 for "not configured" states (the
+    // chat is optional and this is not the caller's fault), 502 for upstream
+    // provider failures, 4xx for bad input.
+    return reply.code(err.status ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'AuthError') {
     const status = {
@@ -862,5 +870,77 @@ export function registerRoutes(app, { publisher, republishActiveConfig }) {
       return errorResponse(reply, err);
     }
   });
-}
 
+  // ---------------------------------------------------------------------------
+  // Phase 05c — AI provider settings (admin) and the read-only assistant
+  // ---------------------------------------------------------------------------
+  //
+  // The provider API key is WRITE-ONLY. There is no route that returns it:
+  // GET reports "configured, ends in …XXXX, changed when by whom" and nothing
+  // more. If the admin has the key they can re-paste it; if not, seeing it
+  // would not help them. A reveal serves no operational purpose and creates
+  // a real exposure, so it does not exist.
+
+  /** Status for the admin panel. Never contains ciphertext, nonce or plaintext. */
+  app.get('/api/provider', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      return await provider.getProviderStatus({ logger: request.log });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /**
+   * Set or rotate the provider key. The body is the only place the plaintext
+   * ever exists on the server side; the service seals it and drops it.
+   * Recorded as PROVIDER_CONFIG_CHANGED, chained strictly by Phase 07.
+   */
+  app.post('/api/provider', { preHandler: requireCap(CAP.ADMIN) }, async (request, reply) => {
+    try {
+      const { provider: name, model, apiKey } = request.body ?? {};
+      const saved = await provider.setProviderKey({ provider: name, model, apiKey, actor: getActor(request) });
+      // Same shape as GET, so the panel re-renders from one source.
+      const status = await provider.getProviderStatus({ logger: request.log });
+      return reply.code(saved.action === 'set' ? 201 : 200).send(status);
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /**
+   * Whether the assistant is usable, for every role. The admin-only route
+   * above includes who changed it; this one deliberately does not.
+   */
+  app.get('/api/chat/status', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
+    try {
+      const s = await provider.getProviderStatus({ logger: request.log });
+      return { status: s.status, usable: s.usable, message: s.message, provider: s.provider, model: s.model };
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+
+  /**
+   * One chat turn. Available to ADMIN, ENGINEER and FARMER alike — a tool
+   * whose only power is explanation has nothing to gate. The caller's own
+   * session cookie is forwarded to every tool call the model makes, so the
+   * assistant can read exactly what the caller can read and nothing else.
+   *
+   * Body: { message: string, history?: [{ role: 'user'|'assistant', content }] }
+   * The client keeps the history; the server stores nothing about the chat.
+   */
+  app.post('/api/chat', { preHandler: requireCap(CAP.VIEW) }, async (request, reply) => {
+    try {
+      const { message, history } = request.body ?? {};
+      return await runChatTurn({
+        message,
+        history,
+        actor: { id: request.user.id, role: request.user.role, username: request.user.username },
+        cookieHeader: request.headers.cookie ?? '',
+        logger: request.log,
+      });
+    } catch (err) {
+      return errorResponse(reply, err);
+    }
+  });
+}
