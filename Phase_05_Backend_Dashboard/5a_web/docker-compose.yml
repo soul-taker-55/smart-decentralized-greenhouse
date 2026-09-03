@@ -87,6 +87,26 @@ services:
       COMMAND_TTL_MAX_S: 3600
 
       # ---------------------------------------------------------------------
+      # Phase 06 — vision node
+      # ---------------------------------------------------------------------
+      # A single static bearer secret, shared with the CAM's secrets.h and
+      # checked by device-auth.js on the two device-facing routes only
+      # (upload, pending). The camera is not a user and carries no role: this
+      # proves WHICH CAMERA, nothing more. It grants no access to any config,
+      # command or e-stop route — those stay behind the session and role matrix.
+      #
+      # One camera, one token. If a second camera is ever added this becomes a
+      # per-device table; building that now would be premature.
+      #
+      # Generate with: openssl rand -hex 32
+      CAMERA_DEVICE_TOKEN: ${CAMERA_DEVICE_TOKEN}
+
+      # Mount point for the image volume below. JPEG bytes live on disk, not in
+      # Postgres — camera_images stores only a path relative to this root, so
+      # that queries serving the dashboard never pay for image I/O.
+      CAMERA_IMAGE_DIR: /data/camera-images
+
+      # ---------------------------------------------------------------------
       # Phase 05c — provider key-encrypting key
       # ---------------------------------------------------------------------
       # 32 random bytes, base64, generated ONCE by the SERVER administrator
@@ -100,9 +120,18 @@ services:
       # Without it the value sits in Dokploy and the container never sees it.
       PROVIDER_KEK: ${PROVIDER_KEK}
 
+    volumes:
+      - camera-images:/data/camera-images
+
     networks:
       - dokploy-network
 
 networks:
   dokploy-network:
     external: true
+
+volumes:
+  # Phase 06 image store. A named volume rather than a bind mount: the images
+  # are the raw material of the growth dataset and must survive a container
+  # rebuild.
+  camera-images:
