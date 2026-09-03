@@ -8,6 +8,7 @@ import ConfigPage from './components/ConfigPage.jsx';
 import ActivityPage, { CameraPage } from './components/ActivityPage.jsx';
 import { LoginPage, InvitePage, KeySetup } from './components/AuthPages.jsx';
 import AdminPage from './components/AdminPage.jsx';
+import ChatPage from './components/ChatPage.jsx';
 import { EstopBanner, EstopControl } from './components/Estop.jsx';
 
 /**
@@ -62,6 +63,7 @@ function Sidebar({ user, onSignOut }) {
       <NavLink to="/config" className={link}>Configuration</NavLink>
       <NavLink to="/events" className={link}>Activity</NavLink>
       <NavLink to="/camera" className={link}>Camera</NavLink>
+      <NavLink to="/assistant" className={link}>Assistant</NavLink>
       {user?.role === 'engineer' && (
         <NavLink to="/key" className={link}>My signing key</NavLink>
       )}
@@ -272,6 +274,7 @@ function Shell({ user, onSignOut }) {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/events" element={<ActivityRoute />} />
             <Route path="/camera" element={<CameraPage />} />
+            <Route path="/assistant" element={<ChatPage user={user} />} />
             <Route path="/admin" element={<AdminPage currentUserId={user.id} />} />
             <Route
               path="/key"
