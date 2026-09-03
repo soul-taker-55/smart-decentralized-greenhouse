@@ -24,6 +24,7 @@ import { checkConnections, closePools } from './db.js';
 import { assertTimeVector } from './services/ledger-service.js';
 import { MqttPublisher } from './mqtt.js';
 import { registerRoutes } from './routes.js';
+import { registerCameraRoutes } from './camera-routes.js';
 import { attachUser } from './auth.js';
 import { bootstrapAdmin } from './services/identity-service.js';
 import { parseKek, KekError } from './provider-crypto.js';
@@ -256,6 +257,10 @@ async function start() {
   }
 
   registerRoutes(app, { publisher, republishActiveConfig });
+  // Phase 06 — registered separately because it is a separate trust boundary.
+  // Two of its five routes authenticate a DEVICE by static token rather than a
+  // user by session; see camera-routes.js.
+  registerCameraRoutes(app);
 
   // Serve the built dashboard from the same origin as the API, so one container
   // serves both and there is no CORS surface in production. Absent in
