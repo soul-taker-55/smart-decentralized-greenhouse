@@ -86,6 +86,20 @@ services:
       # constraint, so changing it needs no migration.
       COMMAND_TTL_MAX_S: 3600
 
+      # ---------------------------------------------------------------------
+      # Phase 05c — provider key-encrypting key
+      # ---------------------------------------------------------------------
+      # 32 random bytes, base64, generated ONCE by the SERVER administrator
+      # (provider-crypto.js generateKek()) and set only in Dokploy's
+      # environment tab. Never committed, never logged, never derived from
+      # another secret. The dashboard administrator never sees it; the
+      # database never holds it. Absent → the backend starts and the chat
+      # reports it; malformed → the backend refuses to start.
+      #
+      # This line is what carries the variable from Dokploy into the process.
+      # Without it the value sits in Dokploy and the container never sees it.
+      PROVIDER_KEK: ${PROVIDER_KEK}
+
     networks:
       - dokploy-network
 
