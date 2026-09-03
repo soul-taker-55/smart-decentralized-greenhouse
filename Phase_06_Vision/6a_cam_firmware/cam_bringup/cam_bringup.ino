@@ -1,14 +1,16 @@
-// SDIGF Phase 06 — ESP32-CAM bring-up
+// SDIGF Phase 06 — ESP32-CAM bring-up + software JPEG
 // Board: AI-Thinker ESP32-CAM layout
-// Sensor: unconfirmed — driver rejects JPEG, so likely OV7670 not OV2640.
-//         This sketch identifies it by PID on successful init.
-// Purpose: prove the hardware before any network upload exists.
-// Captures one frame per cycle and reports size, WiFi and heap over serial.
-// NO upload, NO MQTT. Evidence-gathering only.
+// Sensor: OV7670-class (PID 0x2145). NO hardware JPEG encoder — the board is
+//         sold as OV2640 but is not one. Frames are captured raw as RGB565 and
+//         compressed in software via frame2jpg(). This is a workaround for a
+//         hardware mismatch, not a design preference.
+// Purpose: prove software encoding and measure real payload size and cost
+//          before any upload code is written. NO network upload yet.
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include "esp_camera.h"
+#include "img_converters.h"
 #include "secrets.h"
 
 // ---- AI-Thinker pin map (fixed by the board, not a choice) ----
@@ -33,16 +35,19 @@
 #define USE_FLASH       true      // set false if the rail browns out
 #define FLASH_MS         120
 
+#define JPEG_QUALITY      80      // 1-100 for frame2jpg; 80 is a sane start
+
 static uint32_t frameCount = 0;
 
 const char* sensorName(uint16_t pid) {
   switch (pid) {
-    case 0x26: return "OV2640 (has JPEG encoder)";
-    case 0x76: return "OV7670 (NO JPEG encoder)";
-    case 0x77: return "OV7725 (NO JPEG encoder)";
-    case 0x36: return "OV3660";
-    case 0x56: return "OV5640";
-    default:   return "unknown";
+    case 0x26:   return "OV2640 (hardware JPEG)";
+    case 0x76:   return "OV7670 (no hardware JPEG)";
+    case 0x2145: return "OV7670-class (no hardware JPEG)";
+    case 0x77:   return "OV7725 (no hardware JPEG)";
+    case 0x36:   return "OV3660";
+    case 0x56:   return "OV5640";
+    default:     return "unknown";
   }
 }
 
@@ -63,9 +68,9 @@ bool initCamera() {
   c.pin_pwdn  = PWDN_GPIO_NUM;
   c.pin_reset = RESET_GPIO_NUM;
   c.xclk_freq_hz = 10000000;
-  c.pixel_format = PIXFORMAT_RGB565;   // raw — sensor has no JPEG encoder
-  c.frame_size   = FRAMESIZE_QVGA;     // 320x240 = 150 KB/frame in RGB565
-  c.jpeg_quality = 12;                 // ignored for RGB565, kept for later
+  c.pixel_format = PIXFORMAT_RGB565;   // raw — no hardware encoder available
+  c.frame_size   = FRAMESIZE_QVGA;     // 320x240 = 153600 B raw
+  c.jpeg_quality = 12;                 // unused for RGB565
   c.fb_count     = psramFound() ? 2 : 1;
   c.grab_mode    = CAMERA_GRAB_LATEST;
   c.fb_location  = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
@@ -76,7 +81,7 @@ bool initCamera() {
     if (err == 0x105) {
       Serial.println("[CAM] 0x105 = no sensor answered: ribbon seating or power.");
     } else if (err == 0x106) {
-      Serial.println("[CAM] 0x106 = sensor identified but rejected the requested format.");
+      Serial.println("[CAM] 0x106 = sensor identified but rejected the format.");
     }
     return false;
   }
@@ -98,7 +103,7 @@ void setup() {
 
   Serial.begin(115200);
   delay(1500);
-  Serial.println("\n\n=== SDIGF Phase 06 — CAM bring-up ===");
+  Serial.println("\n\n=== SDIGF Phase 06 — CAM bring-up + SW JPEG ===");
   Serial.printf("[SYS] PSRAM: %s\n", psramFound() ? "found" : "NOT FOUND");
   Serial.printf("[SYS] free heap: %u B\n", ESP.getFreeHeap());
 
@@ -132,13 +137,33 @@ void loop() {
 
   if (!fb) {
     Serial.println("[CAP] capture FAILED (null frame buffer)");
+    delay(5000);
+    return;
+  }
+
+  frameCount++;
+  uint32_t rawLen = fb->len;
+
+  // --- software JPEG encode ---
+  uint8_t *jpgBuf = NULL;
+  size_t   jpgLen = 0;
+  uint32_t tEnc   = millis();
+  bool ok = frame2jpg(fb, JPEG_QUALITY, &jpgBuf, &jpgLen);
+  tEnc = millis() - tEnc;
+
+  esp_camera_fb_return(fb);        // return the raw buffer as soon as we can
+
+  if (!ok) {
+    Serial.printf("[JPG] #%lu encode FAILED (heap %u)\n",
+                  frameCount, ESP.getFreeHeap());
   } else {
-    frameCount++;
-    Serial.printf("[CAP] #%lu  %ux%u  %u B  fmt %d  heap %u  rssi %d\n",
-                  frameCount, fb->width, fb->height, fb->len, fb->format,
+    Serial.printf("[JPG] #%lu  raw %u B -> jpg %u B  (%.1fx)  %lu ms  heap %u  rssi %d\n",
+                  frameCount, rawLen, (unsigned)jpgLen,
+                  (float)rawLen / (float)jpgLen, tEnc,
                   ESP.getFreeHeap(),
                   WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0);
-    esp_camera_fb_return(fb);     // mandatory — leaking this exhausts PSRAM
+    free(jpgBuf);                  // frame2jpg mallocs — this MUST be freed
   }
+
   delay(5000);
 }
