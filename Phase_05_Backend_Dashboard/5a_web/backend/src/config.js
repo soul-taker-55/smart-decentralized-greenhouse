@@ -77,6 +77,31 @@ export const config = {
   commandTtlMaxS: optionalInt('COMMAND_TTL_MAX_S', 3600),
 
   /**
+   * Phase 06 — vision node.
+   *
+   * imageDir is a Docker volume mount point, not a database value. See
+   * camera_images.file_path in 010_camera.sql for why the path stored in the
+   * row is always relative to this root and never absolute: the mount point is
+   * deployment configuration and must be free to change without a migration.
+   *
+   * deviceToken gates the two device-facing routes in camera-routes.js
+   * (upload, pending) through device-auth.js. It is unrelated to user sessions
+   * and unrelated to the client-side ECDSA keys 05b generates for config
+   * approval — a different trust boundary and a different kind of secret. The
+   * camera is not a user and holds no role; this proves which camera, nothing
+   * more.
+   *
+   * required(), not optional(), on the token. Same policy this file already
+   * applies to PG_PASS and MQTT_PASS: an upload route that quietly accepts any
+   * bearer because the variable was never set is precisely the "starts fine,
+   * fails later" case the header of this file refuses to allow.
+   */
+  camera: {
+    imageDir: optional('CAMERA_IMAGE_DIR', '/data/camera-images'),
+    deviceToken: required('CAMERA_DEVICE_TOKEN'),
+  },
+
+  /**
    * Phase 05c — key-encrypting key for the AI provider API key. 32 random
    * bytes, base64, generated once by the SERVER administrator with a CSPRNG
    * (see provider-crypto.js generateKek()). Never derived from another secret.
