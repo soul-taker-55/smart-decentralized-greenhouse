@@ -167,6 +167,16 @@ test('offers: the live-caught sentence is rejected', () => {
   assert.deepEqual(rules(r), ['offers_to_act']);
 });
 
+test('offers: the second live-caught form — a question to the reader with an operational verb', () => {
+  for (const s of [
+    'Would you like to issue a temporary command to turn on the humidifier?',
+    'Do you want to turn on the humidifier?',
+    'Would you like to activate the fans?',
+  ]) {
+    assert.deepEqual(rules(checkOffersToAct(s)), ['offers_to_act'], s);
+  }
+});
+
 test('offers: first-person offers to operate are rejected', () => {
   for (const s of [
     'Would you like me to turn on the humidifier?',
@@ -185,6 +195,8 @@ test('offers: telling the person what THEY could do is allowed', () => {
     'As an engineer, you can review the active configuration.',
     'If you want, raise it with an engineer.',
     'The humidifier can be turned on manually from the Actuators page.',
+    'Would you like to know what the configuration sets?',
+    'Do you want the history for the last 24 hours?',
   ]) {
     assert.deepEqual(checkOffersToAct(s), [], s);
   }

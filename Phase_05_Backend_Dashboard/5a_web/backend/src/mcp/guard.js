@@ -169,12 +169,22 @@ export function checkGrowingValue(reply) {
 // Found in the first live conversation: an engineer was asked "Would you like
 // to proceed with a manual command or review the configuration?"
 
+// Operational verbs. One list, used in every pattern below, so a new verb is
+// added once.
+const ACT_VERBS =
+  'turn|switch|run|start|stop|set|adjust|issue|send|apply|activate|deactivate|propose|approve|reject|clear|trigger|engage|enable|disable|open|close|proceed';
+
 const OFFERS_TO_ACT = [
+  // "would you like me to…", "do you want us to…"
   /\b(would|do) you (like|want) (me|us) to\b/i,
-  /\bshall i\b/i,
-  /\bwould you like to proceed\b/i,
-  /\bi (can|could|will|'ll) (turn|switch|run|start|stop|set|adjust|issue|send|apply|activate|propose|approve|clear|trigger)\b/i,
-  /\blet me (turn|switch|run|start|stop|set|adjust|issue|send|apply|activate|propose|approve|clear|trigger)\b/i,
+  // "would you like to issue…", "do you want to turn on…" — a question
+  // addressed to the reader with an operational verb reads as an offer to do
+  // it through the chat. Found live: "Would you like to issue a temporary
+  // command to turn on the humidifier?"
+  new RegExp(String.raw`\b(would|do) you (like|want|wish) to (` + ACT_VERBS + String.raw`)\b`, 'i'),
+  /\bshall (i|we)\b/i,
+  new RegExp(String.raw`\bi (can|could|will|'ll) (` + ACT_VERBS + String.raw`)\b`, 'i'),
+  new RegExp(String.raw`\blet me (` + ACT_VERBS + String.raw`)\b`, 'i'),
   /\bi(?:'ll| will) (go ahead|proceed|take care of)\b/i,
 ];
 
