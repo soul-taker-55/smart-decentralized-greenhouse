@@ -44,6 +44,14 @@ COPY --from=dashboard /build/backend/public ./public
 # time, not as a blank page in production.
 RUN test -f ./public/index.html || (echo "dashboard bundle missing" && exit 1)
 
+# Phase 06 — the camera image volume mounts here. Create it and hand it to the
+# runtime user IN THE IMAGE, because Docker seeds a new named volume's
+# ownership from whatever already exists at the mount point. Without this the
+# volume arrives owned by root, the process runs as `node`, and every upload
+# fails with EACCES on mkdir — which looks like a bug in the upload route and
+# is not. Found on the first live upload attempt, 2026-09-03.
+RUN mkdir -p /data/camera-images && chown -R node:node /data
+
 USER node
 
 EXPOSE 3000
