@@ -75,6 +75,20 @@ export const config = {
    * become per-actuator should not require a migration to change.
    */
   commandTtlMaxS: optionalInt('COMMAND_TTL_MAX_S', 3600),
+
+  /**
+   * Phase 05c — key-encrypting key for the AI provider API key. 32 random
+   * bytes, base64, generated once by the SERVER administrator with a CSPRNG
+   * (see provider-crypto.js generateKek()). Never derived from another secret.
+   *
+   * OPTIONAL by design: the chat is not in the life-critical path, so an
+   * absent KEK must not stop the backend. Whether a PRESENT value is
+   * acceptable is decided at startup in index.js, not here — a malformed KEK
+   * is fatal, an absent one is a status the chat reports.
+   *
+   * Held raw. It is parsed exactly once, and never logged.
+   */
+  providerKekRaw: optional('PROVIDER_KEK', null),
 };
 
 /** Topic tree, contract v4 §1. Built once so no route string is ever hand-typed. */

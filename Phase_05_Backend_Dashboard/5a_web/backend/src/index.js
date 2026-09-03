@@ -26,6 +26,8 @@ import { MqttPublisher } from './mqtt.js';
 import { registerRoutes } from './routes.js';
 import { attachUser } from './auth.js';
 import { bootstrapAdmin } from './services/identity-service.js';
+import { parseKek, KekError } from './provider-crypto.js';
+import { installKek } from './services/provider-service.js';
 import * as configService from './services/config-service.js';
 import * as commandService from './services/command-service.js';
 import * as estopService from './services/estop-service.js';
@@ -128,6 +130,37 @@ async function start() {
         `verification indistinguishably from tampering.`
     );
     process.exit(1);
+  }
+
+  // ---- 2c. Provider key-encrypting key (Phase 05c) -------------------------
+  //
+  // Two outcomes, deliberately asymmetric:
+  //   ABSENT    → not an error. The chat is optional; the backend starts and
+  //               /api/provider reports 'kek_missing' so the SERVER admin knows
+  //               it is their action that is outstanding.
+  //   MALFORMED → FATAL. A KEK that is present but not 32 base64 bytes is a
+  //               configuration mistake in the same class as a weak bootstrap
+  //               password: starting anyway would let an admin store an API
+  //               key that can never be opened, and the fault would surface
+  //               later, elsewhere, as "tampered".
+  // The value is parsed here exactly once and handed to the service. Nothing
+  // else reads PROVIDER_KEK, and nothing ever logs it.
+  if (config.providerKekRaw === null) {
+    installKek(null);
+    app.log.warn('PROVIDER_KEK not set — AI assistant unavailable until the server administrator configures it');
+  } else {
+    try {
+      installKek(parseKek(config.providerKekRaw));
+      app.log.info('provider key-encrypting key installed');
+    } catch (err) {
+      const why = err instanceof KekError ? `${err.code}: ${err.message}` : err.message;
+      app.log.fatal(
+        `PROVIDER_KEK IS MALFORMED — ${why}. Refusing to start: a malformed KEK would let ` +
+          `an API key be sealed that can never be opened. Generate one with ` +
+          `provider-crypto.js generateKek() and set it in the environment.`
+      );
+      process.exit(1);
+    }
   }
 
   // ---- 3. Broker -----------------------------------------------------------
