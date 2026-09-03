@@ -38,7 +38,7 @@ import { emptyConfig, CONFIG_SPEC } from './config-schema.js';
 import { CAP, requireCap, getActor, sessionCookie, SESSION_COOKIE_NAME } from './auth.js';
 
 /** Map service errors onto HTTP status codes. */
-function errorResponse(reply, err) {
+export function errorResponse(reply, err) {
   if (err.name === 'EstopError') {
     const status = { forbidden: 403, no_change: 409, reason_required: 400 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
@@ -61,6 +61,12 @@ function errorResponse(reply, err) {
       // permitted — the system state simply forbids the outcome.
       last_admin: 409, bad_email: 400, wrong_role: 403,
     };
+    return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
+  }
+  if (err.name === 'CameraError') {
+    // Phase 06. Upload and snapshot failures. 'not_found' is the only 404 —
+    // everything else here is the caller sending something malformed.
+    const status = { empty_body: 400, bad_trigger: 400, bad_timestamp: 400, not_found: 404 };
     return reply.code(status[err.code] ?? 400).send({ error: err.code, message: err.message });
   }
   if (err.name === 'ValidationError') {
