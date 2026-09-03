@@ -39,8 +39,8 @@ import {
 /** Greppable, like SDIGF_BOOTSTRAP_ADMIN_CREATED. Fires only on the tamper branch. */
 export const TAMPER_MARKER = 'SDIGF_PROVIDER_KEY_TAMPER_SUSPECTED';
 
-/** Closed list, matching the CHECK in migration 007. */
-export const PROVIDERS = ['anthropic'];
+/** Closed list, matching the CHECK in migration 008. Adapters live in chat-service.js. */
+export const PROVIDERS = ['anthropic', 'openai'];
 
 export class ProviderError extends Error {
   constructor(message, code, status = 400) {
