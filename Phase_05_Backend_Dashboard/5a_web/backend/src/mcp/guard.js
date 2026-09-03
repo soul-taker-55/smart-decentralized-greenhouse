@@ -26,6 +26,15 @@
  *                              reading's value in the text the model receives.
  *                              A guard cannot detect a number that was never
  *                              available; the tool layer is the mechanism.
+ *   offers to act              CHECKED — "would you like me to…", "shall I…",
+ *                              "I can turn on…", "proceed with…". The assistant
+ *                              cannot act; an offer implies it can. Added after
+ *                              the first live conversation produced one.
+ *   judging readings           NOT CHECKED — "these levels are fine" is a crop
+ *                              judgment with no number in it, and a regex has
+ *                              no reliable handle on it. Enforced by the brief
+ *                              (compare to the configured band only). Recorded
+ *                              as a prompt-level rule, not a guard-level one.
  *   secrets                    CHECKED — a provider key prefix in the output
  *                              is rejected regardless of context.
  *
@@ -153,6 +162,30 @@ export function checkGrowingValue(reply) {
   return hits;
 }
 
+// ── offers to act ───────────────────────────────────────────────────────────
+//
+// The assistant has no tool that writes. A sentence that offers to do
+// something — or asks whether to proceed — tells the reader otherwise.
+// Found in the first live conversation: an engineer was asked "Would you like
+// to proceed with a manual command or review the configuration?"
+
+const OFFERS_TO_ACT = [
+  /\b(would|do) you (like|want) (me|us) to\b/i,
+  /\bshall i\b/i,
+  /\bwould you like to proceed\b/i,
+  /\bi (can|could|will|'ll) (turn|switch|run|start|stop|set|adjust|issue|send|apply|activate|propose|approve|clear|trigger)\b/i,
+  /\blet me (turn|switch|run|start|stop|set|adjust|issue|send|apply|activate|propose|approve|clear|trigger)\b/i,
+  /\bi(?:'ll| will) (go ahead|proceed|take care of)\b/i,
+];
+
+export function checkOffersToAct(reply) {
+  for (const re of OFFERS_TO_ACT) {
+    const m = reply.match(re);
+    if (m) return [{ rule: 'offers_to_act', match: m[0] }];
+  }
+  return [];
+}
+
 // ── secrets ─────────────────────────────────────────────────────────────────
 
 const SECRET_SHAPES = [/\bsk-ant-[A-Za-z0-9_-]{8,}/, /\bsk-[A-Za-z0-9]{20,}/, /\bPROVIDER_KEK\s*=\s*\S{20,}/];
@@ -180,6 +213,7 @@ export function checkReply(reply, ctx = {}) {
     ...checkStaleAsCurrent(text, ctx),
     ...checkSelfRegulating(text, ctx),
     ...checkGrowingValue(text),
+    ...checkOffersToAct(text),
   ];
   return { ok: violations.length === 0, violations };
 }
@@ -196,6 +230,8 @@ export function rejectionFeedback(violations) {
         return `You wrote "${v.match}". No firmware exists; the source is a mock simulator. Say so.`;
       case 'growing_value':
         return `You wrote "${v.match}". Do not recommend growing values. You may say what the configuration sets; you may not say what it should be.`;
+      case 'offers_to_act':
+        return `You wrote "${v.match}". You cannot act and cannot proceed with anything. State what the person could do themselves; never offer to do it.`;
       case 'secret_leak':
         return 'Your reply contained something shaped like a credential. Remove it.';
       default:

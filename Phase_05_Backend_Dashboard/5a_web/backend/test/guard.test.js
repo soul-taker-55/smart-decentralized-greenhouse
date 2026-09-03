@@ -16,6 +16,7 @@ import assert from 'node:assert/strict';
 
 import {
   checkReply,
+  checkOffersToAct,
   checkLedgerOverclaim,
   checkStaleAsCurrent,
   checkSelfRegulating,
@@ -156,6 +157,36 @@ test('growing: a suggestion WITHOUT a value is allowed — that is the intended 
     'Consider reviewing the active configuration.',
   ]) {
     assert.deepEqual(checkGrowingValue(s), [], s);
+  }
+});
+
+// ── offers to act ───────────────────────────────────────────────────────────
+
+test('offers: the live-caught sentence is rejected', () => {
+  const r = checkOffersToAct('Would you like to proceed with a manual command or review the configuration?');
+  assert.deepEqual(rules(r), ['offers_to_act']);
+});
+
+test('offers: first-person offers to operate are rejected', () => {
+  for (const s of [
+    'Would you like me to turn on the humidifier?',
+    'Shall I issue a temporary command?',
+    'I can switch the fans to stage 2 if you want.',
+    "Let me run the pump for thirty seconds.",
+    "I'll go ahead and propose a change.",
+  ]) {
+    assert.ok(checkOffersToAct(s).length > 0, s);
+  }
+});
+
+test('offers: telling the person what THEY could do is allowed', () => {
+  for (const s of [
+    'You could issue a temporary command to run the humidifier.',
+    'As an engineer, you can review the active configuration.',
+    'If you want, raise it with an engineer.',
+    'The humidifier can be turned on manually from the Actuators page.',
+  ]) {
+    assert.deepEqual(checkOffersToAct(s), [], s);
   }
 });
 
