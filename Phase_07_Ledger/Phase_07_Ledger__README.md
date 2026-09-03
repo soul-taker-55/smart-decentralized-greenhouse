@@ -205,8 +205,9 @@ truthfulness would be making a promise it cannot keep.
 
 The demonstration attacks the chain six ways and prints what the checking found.
 It is safe: it builds its own temporary database, damages that, and deletes it
-afterwards. **It cannot touch the real system** — the target name is fixed in the
-code and there is no setting that redirects it.
+afterwards. **The database this demo creates and destroys is fixed in the code
+and cannot be changed by configuration. It never touches the project's real
+data.**
 
 ### What you need
 

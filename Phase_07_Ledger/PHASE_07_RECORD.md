@@ -118,6 +118,24 @@ restore had round-tripped the timestamp through `Date`, which holds milliseconds
 The ledger was right; the harness was not. Restores now use the same `to_char`
 expression the ledger uses. The hazard is the precise one `time` is a string for.
 
+### A fifth, found by testing COLD
+
+**Preflight validated one connection target while the work used another.** The
+tamper demo's preflight connects via its own `ADMIN` object, which defaults
+`PG_HOST` to `127.0.0.1`. The script then set only `PG_DB` and let `config.js`
+supply the rest — and `config.js` defaults `PG_HOST` to `sdigf-db`, the Docker
+service name, correct inside the compose network and unresolvable outside it.
+Preflight passed; the run then died on `getaddrinfo ENOTFOUND sdigf-db`.
+
+**A preflight that validates a different target from the one the work uses is not
+a preflight.** Fixed by propagating host, port and user, not just the database
+name.
+
+This would never have surfaced with `PG_HOST` set in the environment, which is
+how every earlier run had been made. It appeared only on a genuinely cold run
+from a fresh clone with nothing configured — the condition the fix was written
+for in the first place.
+
 ---
 
 ## 5 · FIXED FACTS ABOUT THIS DEPLOYMENT
@@ -244,6 +262,29 @@ but the UI still presents the number without qualification.
    detected" and leaving. **The requirement was satisfied at half strength, which
    is worse than not at all, because it looks addressed and a checklist passes.**
    Cause: inherited styling from surrounding panels rather than a decision.
+
+**Two overstatements caught by deliberate re-reading, not by failure.** Neither
+broke anything; both would have shipped.
+
+1. *The half-strength caveat in the panel.* The scope block was present and
+   correctly worded, but rendered in `--muted` against a bold result. Code review
+   shows a compliant panel; only the rendered page shows the eye landing on "No
+   alteration detected" and leaving.
+2. *The scenario 6 survival claim.* The line "APPROVALS were not, and cannot be
+   — a signature that was never produced cannot be fabricated by anyone" sat
+   directly beneath a demonstration in which **the approval row was never
+   attacked**. The attack deleted `server_events` rows only; `config_approvals`
+   and `config_profiles` survived untouched, which is precisely why the signature
+   could be re-verified. True in a narrow sense, read broader: the signature
+   survived *a* destruction that did not target it, not *the* destruction. The
+   real claim is narrower — **a past approval cannot be FORGED, never that it
+   cannot be ERASED** — and is now stated on screen.
+
+**These are the same class of error, and both were found by being asked to check
+rather than by anything failing.** Together they are the evidence that
+overstatement in this project has been caught by deliberate re-reading rather
+than by accident — which is an argument for keeping the re-reading step, not for
+trusting that it will not be needed next time.
 
 **A React crash from an unread module contract.** `api.js` states in its header
 that every call returns `{ data, error }` and never throws. The panel stored the
