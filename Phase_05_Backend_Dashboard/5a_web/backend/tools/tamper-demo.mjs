@@ -72,6 +72,96 @@ const ADMIN = {
 };
 
 // ---------------------------------------------------------------------------
+// PREFLIGHT
+// ---------------------------------------------------------------------------
+
+/**
+ * Check every prerequisite BEFORE any work begins, and fail with a sentence.
+ *
+ * THIS SCRIPT IS MEANT TO BE RUN IN FRONT OF AN EXAMINER. Without this check a
+ * missing database or an unset password produces a raw Node stack trace —
+ * `ECONNREFUSED` or `SASL: client password must be a string` — which reads as
+ * broken software rather than a missing step, at the exact moment the strongest
+ * demonstration in the phase is supposed to run.
+ *
+ * It is also the discipline the rest of the project already follows: config.js
+ * fails at startup rather than on first request; assertTimeVector() refuses to
+ * boot rather than warning. A demo that died on an unhandled rejection would be
+ * the one place in this system that does not fail cleanly.
+ *
+ * Exits with code 1 and NO stack trace. Every failure names what is missing and
+ * the one command that fixes it.
+ */
+async function preflight() {
+  const fail = (problem, fix) => {
+    console.error('');
+    console.error('  CANNOT RUN — ' + problem);
+    console.error('');
+    console.error('  Fix:');
+    for (const line of fix) console.error('    ' + line);
+    console.error('');
+    process.exit(1);
+  };
+
+  // 1. Is a password set at all? pg throws an unhelpful SASL error otherwise.
+  if (!process.env.PG_PASS) {
+    fail(
+      'the database password is not set.',
+      [
+        'Set PG_PASS to the Postgres superuser password, then run again:',
+        '',
+        '    PG_PASS=<password> node tools/tamper-demo.mjs',
+        '',
+        'On Windows PowerShell:',
+        '',
+        '    $env:PG_PASS="<password>"; node tools/tamper-demo.mjs',
+      ]
+    );
+  }
+
+  // 2. Is Postgres reachable, and can this user create a database?
+  const probe = new pg.Client({ ...ADMIN, connectionTimeoutMillis: 5000 });
+  try {
+    await probe.connect();
+  } catch (err) {
+    const where = `${ADMIN.host}:${ADMIN.port}`;
+    if (err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+      fail(`no PostgreSQL server is listening at ${where}.`, [
+        'Start PostgreSQL, then run again. For the project stack:',
+        '',
+        '    docker start smart-greenhouse-project-sdigfserver-wyl2we-sdigf-db-1',
+        '',
+        `If your database is elsewhere, set PG_HOST and PG_PORT (currently ${where}).`,
+      ]);
+    }
+    fail(`could not connect to PostgreSQL at ${where} — ${err.message}`, [
+      'Check PG_HOST, PG_PORT, PG_USER and PG_PASS, then run again.',
+      `Currently: host=${ADMIN.host} port=${ADMIN.port} user=${ADMIN.user}`,
+    ]);
+  }
+
+  // 3. Can it CREATE DATABASE? The script makes and drops its own.
+  try {
+    const r = await probe.query('SELECT rolcreatedb, rolsuper FROM pg_roles WHERE rolname = current_user');
+    const role = r.rows[0];
+    if (role && !role.rolcreatedb && !role.rolsuper) {
+      await probe.end();
+      fail(`the database user "${ADMIN.user}" may not create databases.`, [
+        'This script creates and drops its own disposable database.',
+        'Use a superuser, or grant the privilege:',
+        '',
+        `    ALTER ROLE ${ADMIN.user} CREATEDB;`,
+      ]);
+    }
+  } catch {
+    // Privilege introspection is best-effort. If it fails, CREATE DATABASE
+    // below will report the real problem; do not block on the probe itself.
+  }
+
+  await probe.end();
+}
+
+// ---------------------------------------------------------------------------
 // PRESENTATION
 // ---------------------------------------------------------------------------
 
@@ -132,6 +222,13 @@ async function dropDatabase() {
 }
 
 export default async function main() {
+  // PREREQUISITES BEFORE ANYTHING IS PRINTED.
+  //
+  // Not even the banner. Announcing "TAMPER DEMONSTRATION" and then refusing to
+  // run is worse than saying nothing: to anyone watching, the demonstration
+  // started and failed. Nothing appears on screen until the run can proceed.
+  await preflight();
+
   console.log('');
   line('═');
   console.log('SDIGF PHASE 07 — TAMPER DEMONSTRATION');
@@ -143,6 +240,18 @@ export default async function main() {
 
   // Point the application at the throwaway database BEFORE importing anything
   // that reads config — config.js loads at import time and fails fast.
+  //
+  // PROPAGATE THE PREFLIGHT'S TARGET, not just the database name.
+  //
+  // config.js defaults PG_HOST to `sdigf-db`, the Docker service name — correct
+  // inside the compose network, unresolvable outside it. Preflight connects via
+  // ADMIN, which defaults to 127.0.0.1. Setting only PG_DB left the two pointing
+  // at different hosts: preflight passed, then the run died on
+  // `getaddrinfo ENOTFOUND sdigf-db`. A preflight that validates a different
+  // target from the one the work uses is not a preflight.
+  process.env.PG_HOST = ADMIN.host;
+  process.env.PG_PORT = String(ADMIN.port);
+  process.env.PG_USER = ADMIN.user;
   process.env.PG_DB = DB_NAME;
   process.env.MQTT_PASS ??= 'unused';
   process.env.SESSION_SECRET ??= 'x'.repeat(40);
@@ -480,6 +589,12 @@ export default async function main() {
   console.log(`      chain: ${afterEvents.map((r) => `${r.seq}:${r.event_type}`).join('  ')}`);
   console.log('');
   console.log(`  ${before.length - after.length} links and ${victims.length} events are gone. Verification reports ok.`);
+  console.log('');
+  console.log(`  NOTE realTimeFrom still reads ${after.realTimeFrom ?? 'null'} — written by the attacker's own`);
+  console.log('       rows. The flag that says how much of the chain was observed in real');
+  console.log('       time is itself part of what a rewrite rewrites. `backfilled` was');
+  console.log('       always a DISCLOSURE so verification would not return uniform green');
+  console.log('       across links proving different things — never a tamper defence.');
   console.log('  SCENARIO 6 IS NOT A GAP IN THE IMPLEMENTATION. It is the honest boundary');
   console.log('  of what an UNANCHORED chain can prove: genesis anchors nothing outside');
   console.log('  the system, so a rewrite from genesis is internally consistent by');
@@ -543,6 +658,15 @@ export default async function main() {
   console.log('    cannot be fabricated by anyone, including an administrator with full');
   console.log('    database access, because the server never held the private key.');
   console.log('');
+  console.log('  SCOPE OF THAT SECOND HALF, STATED EXACTLY:');
+  console.log('    This attack deleted server_events rows. It did NOT delete');
+  console.log('    config_approvals or config_profiles, so the signature above could be');
+  console.log('    re-verified against the bytes it covers. An administrator who also');
+  console.log('    DELETED the approval row would leave nothing to verify — the claim is');
+  console.log('    that a past approval cannot be FORGED, never that it cannot be ERASED.');
+  console.log('    Eleven of the twelve records in a manufactured quorum are erasable;');
+  console.log('    only the signatures are unforgeable. Those are different properties.');
+  console.log('');
   console.log('  A reviewer will construct this attack. The work is stronger for having');
   console.log('  constructed it first.');
   console.log('');
@@ -558,4 +682,16 @@ export default async function main() {
   console.log('');
 }
 
-await main();
+// A failure after preflight is a real fault, not a missing prerequisite — but it
+// should still not surface as an unhandled rejection in front of an audience.
+main().catch(async (err) => {
+  console.error('');
+  console.error('  THE DEMONSTRATION FAILED — ' + err.message);
+  console.error('');
+  console.error('  This is a fault, not a missing prerequisite: preflight passed.');
+  console.error(`  The disposable database ${DB_NAME} may still exist; drop it with:`);
+  console.error('');
+  console.error(`    DROP DATABASE IF EXISTS ${DB_NAME};`);
+  console.error('');
+  process.exit(1);
+});

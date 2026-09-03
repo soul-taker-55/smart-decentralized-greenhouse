@@ -68,7 +68,7 @@ Never blur these.
 | Backfill of pre-ledger history | `{ chained: 57, fromSeq: 1, toSeq: 57 }` |
 | **Strict append through real services** | seq 58, 59 `COMMAND_ISSUED`, `backfilled = false` |
 | `verifyChain` on the live chain | `ok true · length 59 · realTimeFrom 58 · unchained 0` |
-| Endpoint + panel | rendering at `greenhouse.progrex.tech/events` |
+| Endpoint + panel | ✅ rendering live; caveat-prominence fix `8f101f3` deployed as bundle `index-JPbHynHa.js` and captured as the Chapter 12 figure |
 
 ### VERIFIED IN SANDBOX — local Postgres 16.15, migrations 001–006
 
