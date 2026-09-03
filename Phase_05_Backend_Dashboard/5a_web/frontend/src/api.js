@@ -99,6 +99,14 @@ export const api = {
   commands: () => get('/api/commands'),
   commandTargets: () => get('/api/commands/targets'),
   issueCommand: (cmd) => post('/api/commands', cmd),
+
+  // ── Phase 05c — provider settings and the read-only assistant ──────────
+  // The API key travels in exactly one direction: browser → POST body →
+  // sealed. No call here ever returns it.
+  providerStatus: () => get('/api/provider'),
+  setProvider: (provider, model, apiKey) => post('/api/provider', { provider, model, apiKey }),
+  chatStatus: () => get('/api/chat/status'),
+  chat: (message, history) => post('/api/chat', { message, history }),
 };
 
 /** Human-readable age. Returns null when there is nothing to age. */

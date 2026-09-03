@@ -10,6 +10,149 @@ const ROLE_NOTE = {
     'Views everything and issues manual commands. Cannot propose or approve configurations.',
 };
 
+const PROVIDERS = [
+  { id: 'anthropic', label: 'Anthropic', modelHint: 'e.g. claude-sonnet-4-5' },
+  { id: 'openai', label: 'OpenAI', modelHint: 'e.g. gpt-4o' },
+];
+
+const STATUS_LABEL = {
+  ok: 'Configured',
+  not_configured: 'Not configured',
+  kek_missing: 'Encryption key missing',
+  kek_rotated: 'Re-entry required',
+  tampered: 'Integrity check failed',
+};
+
+/**
+ * AI provider for the read-only assistant.
+ *
+ * WRITE-ONLY. The key is pasted here once, sealed on the server under a
+ * key-encrypting key that lives only in the deployment environment, and never
+ * shown again. What this panel displays is "configured, ends in …XXXX, changed
+ * when by whom" — enough to know it is set and to notice if someone else
+ * changed it, nothing more. There is no reveal button, deliberately: if the
+ * administrator has the key they can re-paste it; if not, seeing it would not
+ * help them, and the ability to view it is a real exposure for no purpose.
+ *
+ * Two administrators are involved and the panel says which one is needed when
+ * something is missing: the SERVER administrator (environment, encryption
+ * key) or the DASHBOARD administrator (this panel, the API key).
+ */
+function ProviderControl() {
+  const [status, setStatus] = useState(null);
+  const [provider, setProvider] = useState('anthropic');
+  const [model, setModel] = useState('');
+  const [apiKey, setApiKey] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  async function load() {
+    const { data } = await api.providerStatus();
+    if (data) {
+      setStatus(data);
+      if (data.provider) setProvider(data.provider);
+      if (data.model) setModel(data.model);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  const kekMissing = status?.status === 'kek_missing';
+  const canSubmit = !busy && !kekMissing && model.trim().length > 0 && apiKey.trim().length >= 8;
+
+  async function save() {
+    setBusy(true);
+    setMsg(null);
+    const { data, error } = await api.setProvider(provider, model.trim(), apiKey.trim());
+    // The key leaves this component's state the moment the request is sent,
+    // whether or not it succeeds. A failed save is re-typed, not retried
+    // from memory.
+    setApiKey('');
+    setBusy(false);
+    if (error) return setMsg({ ok: false, text: data?.message ?? error });
+    setStatus(data);
+    setMsg({ ok: true, text: `Key stored — ends in …${data.last4}. Recorded in the activity log.` });
+  }
+
+  const hint = PROVIDERS.find((p) => p.id === provider)?.modelHint ?? '';
+  const isRotate = status?.status === 'ok' || status?.status === 'kek_rotated' || status?.status === 'tampered';
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <span className="label">Assistant provider</span>
+        <span className={`unit ${status?.usable ? 'ok' : 'warn'}`}>
+          {status ? STATUS_LABEL[status.status] ?? status.status : '…'}
+        </span>
+      </div>
+      <div className="card-note">
+        The read-only assistant needs an API key for a language-model provider. The key is sealed on
+        the server and never displayed again — this panel can set it, replace it, and show that it
+        is set.
+      </div>
+
+      {status?.status === 'ok' && (
+        <div className="rolenote">
+          {status.provider} · {status.model} · ends in <b className="num">…{status.last4}</b> · changed{' '}
+          {status.updatedAt ? new Date(status.updatedAt).toLocaleString() : '—'} by{' '}
+          <b>{status.updatedBy?.username ?? status.updatedBy?.id ?? 'unknown'}</b>
+        </div>
+      )}
+
+      {status && status.status !== 'ok' && status.status !== 'not_configured' && (
+        <div className={`rolenote ${status.status === 'tampered' ? 'danger' : 'warn'}`}>{status.message}</div>
+      )}
+
+      {kekMissing ? (
+        <div className="rolenote warn">
+          The encryption key is set in the deployment environment (<code>PROVIDER_KEK</code>), not
+          here. Until the <b>server administrator</b> sets it, no API key can be stored.
+        </div>
+      ) : (
+        <>
+          <div className="cmd-grid">
+            <label>
+              <span>Provider</span>
+              <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+                {PROVIDERS.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span>Model</span>
+              <input value={model} placeholder={hint} onChange={(e) => setModel(e.target.value)} />
+            </label>
+            <label>
+              <span>API key</span>
+              <input
+                type="password"
+                autoComplete="off"
+                value={apiKey}
+                placeholder={isRotate ? 'paste a new key to replace the current one' : 'paste the key'}
+                onChange={(e) => setApiKey(e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="cmd-foot">
+            <button className="btn" onClick={save} disabled={!canSubmit}>
+              {busy ? 'Storing…' : isRotate ? 'Replace key' : 'Store key'}
+            </button>
+            <span className="cmd-cap">Write-only. Recorded in the activity log.</span>
+          </div>
+        </>
+      )}
+
+      {msg && <div className={`cmd-result ${msg.ok ? 'ok' : 'bad'}`}>{msg.text}</div>}
+    </div>
+  );
+}
+
 /**
  * Invite an account.
  *
@@ -245,7 +388,7 @@ export default function AdminPage({ currentUserId }) {
     <>
       <div className="h">
         <h1>Users &amp; keys</h1>
-        <span className="sub">Accounts, signing keys, and the approval threshold</span>
+        <span className="sub">Accounts, signing keys, the approval threshold, and the assistant's provider</span>
       </div>
 
       <div className="cfg-cols">
@@ -381,6 +524,8 @@ export default function AdminPage({ currentUserId }) {
 
         <div className="stack">
           <ThresholdControl policy={policy} engineerCount={engineerCount} onChanged={refresh} />
+
+          <ProviderControl />
 
           <div className="card">
             <div className="card-head">
