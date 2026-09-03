@@ -1,0 +1,12 @@
+# Credentials — never commit
+include/secrets.h
+secrets.h
+
+# PlatformIO build artifacts
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+
+# Serial capture scratch
+*.log
