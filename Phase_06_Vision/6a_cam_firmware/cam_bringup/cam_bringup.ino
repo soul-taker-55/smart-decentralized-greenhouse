@@ -3,10 +3,14 @@
 // no hardware JPEG encoder — software encode via frame2jpg() is the
 // documented workaround, not a design preference. See Phase 06 chapter notes.
 //
-// STEP 3 of the CAM plan: scheduled uploads only. The on-demand snapshot poll
-// (GET /api/camera/pending) is Step 4's job, wired once the dashboard button
-// exists to set that flag — building the poll caller before there's a caller
-// of the flag would be scope creep ahead of its own dependency.
+// Two capture paths, independent of each other:
+//   SCHEDULED — one frame per day, the growth-tracking timelapse. This is what
+//               builds the dataset; it must not depend on anyone being present.
+//   REQUESTED — the dashboard's snapshot button sets a flag in the database.
+//               The server CANNOT REACH THIS DEVICE (NAT, no inbound port), so
+//               the flag is something the camera asks about on its own poll
+//               interval, never something pushed to it. That constraint is the
+//               reason for polling, not a shortcut.
 //
 // KNOWN GAP, stated plainly rather than hidden: TLS certificate validation is
 // OFF (WiFiClientSecure::setInsecure()). The endpoint only accepts image
@@ -47,16 +51,26 @@
 
 #define JPEG_QUALITY      80
 
-// ── CAPTURE INTERVAL ────────────────────────────────────────────────────
-// 30 SECONDS FOR BENCH TESTING ONLY. Before real deployment change this to
-// a real timelapse interval, e.g. 10 minutes:
-//   #define CAPTURE_INTERVAL_MS (10UL * 60UL * 1000UL)
-#define CAPTURE_INTERVAL_MS (30UL * 1000UL)
+// ── INTERVALS ───────────────────────────────────────────────────────────
+// One scheduled frame per day. Plants change over days and weeks; a frame a
+// day is enough resolution to see growth and cheap enough to keep for a season
+// (~7 KB each, ~2.5 MB a year). Manual snapshots add to whatever day they land
+// on, so a day can hold one frame or several.
+//
+// For bench testing, drop this to something short — e.g. 60UL * 1000UL — but
+// put it back before leaving the device to run.
+#define SCHEDULE_INTERVAL_MS (24UL * 60UL * 60UL * 1000UL)
+
+// How often to ask the server whether a snapshot has been requested. 10s is
+// responsive enough that the button does not feel broken, and cheap: the poll
+// is a ~200-byte GET, not an image.
+#define POLL_INTERVAL_MS (10UL * 1000UL)
 
 // Server endpoint. Not secret — kept here rather than in secrets.h so
 // changing environments (bench vs deployed) doesn't touch the file that
 // holds WiFi and device credentials.
-#define UPLOAD_URL "https://greenhouse.progrex.tech/api/camera/upload"
+#define UPLOAD_URL  "https://greenhouse.progrex.tech/api/camera/upload"
+#define PENDING_URL "https://greenhouse.progrex.tech/api/camera/pending"
 
 static uint32_t frameCount = 0;
 static uint32_t uploadOk = 0;
@@ -139,7 +153,7 @@ bool getIsoTimestamp(char *out, size_t outLen) {
  * continues to the next scheduled capture — it never blocks, retries in a
  * tight loop, or halts the device.
  */
-bool captureAndUpload() {
+bool captureAndUpload(const char *trigger) {
   if (USE_FLASH) { digitalWrite(FLASH_LED_PIN, HIGH); delay(FLASH_MS); }
   camera_fb_t *fb = esp_camera_fb_get();
   if (USE_FLASH) digitalWrite(FLASH_LED_PIN, LOW);
@@ -175,7 +189,7 @@ bool captureAndUpload() {
   http.begin(client, UPLOAD_URL);
   http.addHeader("Content-Type", "image/jpeg");
   http.addHeader("x-device-token", CAMERA_DEVICE_TOKEN);
-  http.addHeader("x-trigger", "schedule");
+  http.addHeader("x-trigger", trigger);
 
   char isoTs[32];
   if (getIsoTimestamp(isoTs, sizeof(isoTs))) {
@@ -189,8 +203,8 @@ bool captureAndUpload() {
   bool ok = (code >= 200 && code < 300);
   if (ok) {
     uploadOk++;
-    Serial.printf("[UP ] OK  status %d  %lu ms  (ok=%lu fail=%lu)\n",
-                  code, tUp, uploadOk, uploadFail);
+    Serial.printf("[UP ] OK  %s  status %d  %lu ms  (ok=%lu fail=%lu)\n",
+                  trigger, code, tUp, uploadOk, uploadFail);
   } else {
     uploadFail++;
     String body = http.getString();
@@ -200,6 +214,43 @@ bool captureAndUpload() {
   http.end();
   free(jpgBuf);
   return ok;
+}
+
+/**
+ * Ask the server whether a snapshot has been requested.
+ *
+ * Returns true only on an unambiguous yes. Any failure — no network, bad
+ * status, unparseable body — returns false and is treated as "nothing
+ * requested". A poll that cannot reach the server must never trigger a
+ * capture: the scheduled timelapse is the thing that matters, and a network
+ * fault should degrade this device to schedule-only, not make it fire
+ * unpredictably.
+ *
+ * Deliberately not using ArduinoJson: the response is a two-field object and
+ * a substring check is enough. Pulling in a JSON parser to read one boolean
+ * would add a dependency and a heap allocation to a path that runs every ten
+ * seconds forever.
+ */
+bool snapshotRequested() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+
+  WiFiClientSecure client;
+  client.setInsecure();  // KNOWN GAP — see file header
+
+  HTTPClient http;
+  if (!http.begin(client, PENDING_URL)) return false;
+  http.addHeader("x-device-token", CAMERA_DEVICE_TOKEN);
+
+  int code = http.GET();
+  bool requested = false;
+  if (code == 200) {
+    String body = http.getString();
+    requested = (body.indexOf("\"requested\":true") >= 0);
+  } else if (code > 0) {
+    Serial.printf("[PLL] status %d\n", code);
+  }
+  http.end();
+  return requested;
 }
 
 void setup() {
@@ -243,11 +294,43 @@ void setup() {
     Serial.println("[NET] FAILED — will retry upload attempts each cycle regardless");
   }
 
-  Serial.printf("[CFG] capture interval: %lu ms\n", (unsigned long)CAPTURE_INTERVAL_MS);
+  Serial.printf("[CFG] schedule every %lu ms, poll every %lu ms\n",
+                (unsigned long)SCHEDULE_INTERVAL_MS, (unsigned long)POLL_INTERVAL_MS);
   Serial.println("=== setup complete ===\n");
 }
 
+/**
+ * Poll on a short interval; capture on the long one.
+ *
+ * millis() arithmetic rather than delay() for the schedule, because a 24-hour
+ * delay() would make the device deaf to snapshot requests for a whole day.
+ * Unsigned subtraction handles the ~49-day millis() rollover correctly without
+ * a special case — do not "fix" this into a comparison against a sum.
+ */
 void loop() {
-  captureAndUpload();
-  delay(CAPTURE_INTERVAL_MS);
+  static uint32_t lastSchedule = 0;
+  static bool firstFrameDone = false;
+
+  // One frame shortly after boot so a freshly-started device proves itself
+  // immediately rather than going dark until the first scheduled capture.
+  if (!firstFrameDone) {
+    captureAndUpload("schedule");
+    lastSchedule = millis();
+    firstFrameDone = true;
+  }
+
+  if (millis() - lastSchedule >= SCHEDULE_INTERVAL_MS) {
+    captureAndUpload("schedule");
+    lastSchedule = millis();
+  }
+
+  if (snapshotRequested()) {
+    Serial.println("[PLL] snapshot requested");
+    // The server clears the flag when a 'manual' upload arrives, so a failed
+    // upload deliberately leaves the request standing to be retried next poll
+    // rather than silently swallowing it.
+    captureAndUpload("manual");
+  }
+
+  delay(POLL_INTERVAL_MS);
 }
