@@ -14,6 +14,7 @@
  *   POST /api/camera/upload            device token  — receive a JPEG frame
  *   GET  /api/camera/pending           device token  — "is a snapshot wanted?"
  *   GET  /api/camera/latest            session, VIEW — metadata for the newest image
+ *   GET  /api/camera/pending-status    session, VIEW — is a snapshot outstanding?
  *   GET  /api/camera/image/:id         session, VIEW — stream the JPEG bytes
  *   POST /api/camera/request-snapshot  session, VIEW — set the pending flag
  *
@@ -97,6 +98,27 @@ export function registerCameraRoutes(app) {
         const absPath = await camera.getImagePath(request.params.id, config.ghId);
         reply.header('Content-Type', 'image/jpeg');
         return reply.send(createReadStream(absPath));
+      } catch (err) {
+        return errorResponse(reply, err);
+      }
+    }
+  );
+
+  // Session-gated read of the same flag the device polls. SEPARATE ROUTE from
+  // GET /api/camera/pending on purpose: that one authenticates a device by
+  // static token and this one authenticates a human by session. Same data,
+  // two different callers, two different trust boundaries — sharing one route
+  // would mean either handing the dashboard a device token or letting a device
+  // token satisfy a user-facing route. Neither is acceptable.
+  //
+  // The dashboard needs this so the snapshot button can show "requested,
+  // waiting for the camera" rather than pretending the image is on its way.
+  app.get(
+    '/api/camera/pending-status',
+    { preHandler: requireCap(CAP.VIEW) },
+    async (_request, reply) => {
+      try {
+        return await camera.getPending(config.ghId);
       } catch (err) {
         return errorResponse(reply, err);
       }
