@@ -10,3 +10,5 @@ secrets.h
 
 # Serial capture scratch
 *.log
+# Throwaway test fixture from curl endpoint checks
+test.jpg
