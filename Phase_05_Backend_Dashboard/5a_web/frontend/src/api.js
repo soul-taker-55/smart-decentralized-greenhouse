@@ -107,6 +107,20 @@ export const api = {
   setProvider: (provider, model, apiKey) => post('/api/provider', { provider, model, apiKey }),
   chatStatus: () => get('/api/chat/status'),
   chat: (message, history) => post('/api/chat', { message, history }),
+
+  // ── camera (Phase 06) ───────────────────────────────────────────────────
+  //
+  // Read-only from the dashboard's point of view. requestSnapshot sets a flag
+  // the DEVICE polls — the server cannot reach the camera, which sits on its
+  // own network behind NAT with no inbound port. So "capture now" is a request
+  // the camera discovers, never a command pushed to it, and the UI must not
+  // imply otherwise.
+  //
+  // All three sit behind CAP.VIEW, the same capability that gates readings:
+  // an image is an observation available to every role, not an actuation.
+  cameraLatest: () => get('/api/camera/latest'),
+  cameraPending: () => get('/api/camera/pending-status'),
+  requestSnapshot: () => post('/api/camera/request-snapshot'),
 };
 
 /** Human-readable age. Returns null when there is nothing to age. */
