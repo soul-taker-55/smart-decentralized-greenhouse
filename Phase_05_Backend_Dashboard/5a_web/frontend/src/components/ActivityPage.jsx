@@ -343,35 +343,50 @@ export default function ActivityPage({ events, loaded }) {
  * the 5 V rail. It sits deliberately outside the control and authorisation
  * path: it can observe the enclosure, but nothing it sees can move an actuator.
  *
- * WHY THERE IS NO LIVE VIEW, and why "Capture now" does not produce an image
- * immediately: the server CANNOT REACH THE CAMERA. The device sits behind NAT
- * on its own network with no inbound port, so every exchange is the camera
+ * WHY THERE IS NO LIVE VIEW, and why "Request snapshot" does not produce an
+ * image immediately: the server CANNOT REACH THE CAMERA. The device sits behind
+ * NAT on its own network with no inbound port, so every exchange is the camera
  * asking the server, never the server telling the camera. The button sets a
- * flag; the camera discovers it on its own poll interval and uploads when it
- * does. The UI has to say that honestly rather than showing a spinner that
- * implies a request is in flight to a device nothing can contact.
+ * flag; the camera discovers it on its next poll and uploads then. The UI says
+ * so rather than showing a spinner that implies a request is in flight to a
+ * device nothing can contact.
+ *
+ * LAYOUT: one scheduled frame per day, plus any manual snapshots, so the
+ * history is a short list of days rather than a long undifferentiated strip.
+ * Selecting a day shows that day's frames; selecting a frame shows it large.
  */
 export function CameraPage() {
-  const [latest, setLatest] = useState(null);
+  const [days, setDays] = useState([]);
   const [pending, setPending] = useState(null);
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(true);
   const [requesting, setRequesting] = useState(false);
+  const [openDay, setOpenDay] = useState(null);
+  const [selected, setSelected] = useState(null);
 
   // api.js never throws — every call resolves to { data, error }.
   async function refresh() {
-    const [l, p] = await Promise.all([api.cameraLatest(), api.cameraPending()]);
-    if (l.error) setErr(l.error);
-    else { setErr(null); setLatest(l.data?.image ?? null); }
+    const [d, p] = await Promise.all([api.cameraDays(), api.cameraPending()]);
+    if (d.error) {
+      setErr(d.error);
+    } else {
+      setErr(null);
+      const list = d.data?.days ?? [];
+      setDays(list);
+      // Default to the newest day and its newest frame, but never override a
+      // selection the operator has already made — a background refresh must
+      // not yank the image out from under someone looking at it.
+      setOpenDay((cur) => cur ?? list[0]?.day ?? null);
+      setSelected((cur) => cur ?? list[0]?.images[0] ?? null);
+    }
     if (!p.error) setPending(p.data ?? null);
     setLoading(false);
   }
 
   useEffect(() => {
     refresh();
-    // Poll while a snapshot is outstanding so the page notices the upload
-    // landing without the operator reloading. 5s is well under the device's
-    // own poll interval, so the UI is never the slow part of the loop.
+    // Poll so an arriving upload appears without a reload. 5s is well under
+    // the device's own poll interval, so the UI is never the slow part.
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
   }, []);
@@ -384,15 +399,18 @@ export function CameraPage() {
     refresh();
   }
 
-  const imgSrc = latest ? `/api/camera/image/${latest.id}` : null;
   const waiting = pending?.requested === true;
+  const dayImages = days.find((d) => d.day === openDay)?.images ?? [];
+  const total = days.reduce((n, d) => n + d.images.length, 0);
 
   return (
     <>
       <div className="h">
         <h1>Camera</h1>
         <span className="sub">
-          {latest ? `Last image ${when(latest.captured_at)}` : 'No images yet'}
+          {total > 0
+            ? `${total} image${total === 1 ? '' : 's'} across ${days.length} day${days.length === 1 ? '' : 's'}`
+            : 'No images yet'}
         </span>
       </div>
 
@@ -400,10 +418,10 @@ export function CameraPage() {
 
       <div className="camgrid">
         <div className="camslot main">
-          {imgSrc ? (
+          {selected ? (
             <img
-              src={imgSrc}
-              alt={`Enclosure at ${when(latest.captured_at)}`}
+              src={`/api/camera/image/${selected.id}`}
+              alt={`Enclosure at ${when(selected.captured_at)}`}
               style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
             />
           ) : (
@@ -417,17 +435,17 @@ export function CameraPage() {
         <div className="stack">
           <div className="camslot">
             <div className="camslot-in">
-              <b>Last image</b>
-              {latest ? (
+              <b>{selected ? 'Selected image' : 'Details'}</b>
+              {selected ? (
                 <span>
-                  {when(latest.captured_at)}
+                  {when(selected.captured_at)}
                   <br />
-                  {(latest.file_size_bytes / 1024).toFixed(1)} KB · {latest.trigger}
-                  {latest.canopy_position !== null && (
+                  {(selected.file_size_bytes / 1024).toFixed(1)} KB · {selected.trigger}
+                  {selected.canopy_position !== null && (
                     <>
                       <br />
-                      canopy {latest.canopy_position}% ·{' '}
-                      {latest.photoperiod_active ? 'light on' : 'light off'}
+                      canopy {selected.canopy_position}% ·{' '}
+                      {selected.photoperiod_active ? 'light on' : 'light off'}
                     </>
                   )}
                 </span>
@@ -441,9 +459,7 @@ export function CameraPage() {
             <div className="camslot-in">
               <b>Capture now</b>
               {waiting ? (
-                <span>
-                  Requested — waiting for the camera to poll
-                </span>
+                <span>Requested — waiting for the camera to poll</span>
               ) : (
                 <>
                   <button className="btn" onClick={onRequest} disabled={requesting}>
@@ -459,7 +475,43 @@ export function CameraPage() {
         </div>
       </div>
 
-      <p className="muted" style={{ marginTop: 12, maxWidth: 620, lineHeight: 1.6 }}>
+      {days.length > 0 && (
+        <div className="camdays">
+          <div className="camdaylist">
+            {days.map((d) => (
+              <button
+                key={d.day}
+                className={`camday${d.day === openDay ? ' on' : ''}`}
+                onClick={() => {
+                  setOpenDay(d.day);
+                  setSelected(d.images[0]);
+                }}
+              >
+                <b>{dayLabel(d.day)}</b>
+                <span>
+                  {d.images.length} image{d.images.length === 1 ? '' : 's'}
+                </span>
+              </button>
+            ))}
+          </div>
+
+          <div className="camstrip">
+            {dayImages.map((img) => (
+              <button
+                key={img.id}
+                className={`camthumb${selected?.id === img.id ? ' on' : ''}`}
+                onClick={() => setSelected(img)}
+                title={`${when(img.captured_at)} · ${img.trigger}`}
+              >
+                <img src={`/api/camera/image/${img.id}`} alt="" />
+                <span>{timeOnly(img.captured_at)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <p className="muted" style={{ marginTop: 14, maxWidth: 620, lineHeight: 1.6 }}>
         The camera runs on its own controller with a separate network connection, sharing only
         power with the greenhouse controller. It is kept outside the control path on purpose: it
         can observe the enclosure, but nothing it sees can move an actuator. Requesting a snapshot
@@ -468,5 +520,20 @@ export function CameraPage() {
       </p>
     </>
   );
+}
+
+/** "2026-09-04" → "Sep 4" — or "Today"/"Yesterday" where that reads better. */
+function dayLabel(isoDay) {
+  const d = new Date(`${isoDay}T00:00:00Z`);
+  const today = new Date();
+  const todayUtc = today.toISOString().slice(0, 10);
+  if (isoDay === todayUtc) return 'Today';
+  const yest = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (isoDay === yest) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+function timeOnly(t) {
+  return new Date(t).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 

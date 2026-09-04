@@ -119,6 +119,7 @@ export const api = {
   // All three sit behind CAP.VIEW, the same capability that gates readings:
   // an image is an observation available to every role, not an actuation.
   cameraLatest: () => get('/api/camera/latest'),
+  cameraDays: () => get('/api/camera/days'),
   cameraPending: () => get('/api/camera/pending-status'),
   requestSnapshot: () => post('/api/camera/request-snapshot'),
 };

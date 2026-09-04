@@ -15,6 +15,7 @@
  *   GET  /api/camera/pending           device token  — "is a snapshot wanted?"
  *   GET  /api/camera/latest            session, VIEW — metadata for the newest image
  *   GET  /api/camera/pending-status    session, VIEW — is a snapshot outstanding?
+ *   GET  /api/camera/days              session, VIEW — full history grouped by day
  *   GET  /api/camera/image/:id         session, VIEW — stream the JPEG bytes
  *   POST /api/camera/request-snapshot  session, VIEW — set the pending flag
  *
@@ -84,6 +85,21 @@ export function registerCameraRoutes(app) {
       try {
         const latest = await camera.getLatest(config.ghId);
         return { image: latest };
+      } catch (err) {
+        return errorResponse(reply, err);
+      }
+    }
+  );
+
+  // Full history grouped by day. Separate from /latest because the two answer
+  // different questions: /latest is "what does the enclosure look like now",
+  // this is "what has it looked like over time". The panel uses both.
+  app.get(
+    '/api/camera/days',
+    { preHandler: requireCap(CAP.VIEW) },
+    async (_request, reply) => {
+      try {
+        return { days: await camera.listByDay(config.ghId) };
       } catch (err) {
         return errorResponse(reply, err);
       }

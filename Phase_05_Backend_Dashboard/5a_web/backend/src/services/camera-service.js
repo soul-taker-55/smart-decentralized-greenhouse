@@ -161,6 +161,44 @@ export async function getLatest(ghId) {
   return r.rows[0] ?? null;
 }
 
+/**
+ * Every image grouped by calendar day, newest day first.
+ *
+ * Grouping happens in SQL rather than in the frontend so the page never has to
+ * hold the whole history in memory to work out what a "day" is. The date is cut
+ * in UTC deliberately: captured_at is stored as an absolute instant, and a
+ * browser in a different timezone must not silently reassign a frame to a
+ * different day than the one the server and the device agree on.
+ *
+ * No pagination. At one scheduled frame a day plus occasional manual
+ * snapshots, a full year is a few hundred rows — well under the size where
+ * paging earns its complexity. If this ever runs multi-camera or at
+ * minute-resolution intervals, revisit it; not before.
+ */
+export async function listByDay(ghId) {
+  const r = await query(
+    `SELECT id, captured_at, file_size_bytes, trigger, requested_by,
+            canopy_position, photoperiod_active,
+            to_char(captured_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day
+       FROM camera_images
+      WHERE gh_id = $1
+      ORDER BY captured_at DESC`,
+    [ghId]
+  );
+
+  const days = [];
+  const index = new Map();
+  for (const row of r.rows) {
+    if (!index.has(row.day)) {
+      const entry = { day: row.day, images: [] };
+      index.set(row.day, entry);
+      days.push(entry);
+    }
+    index.get(row.day).images.push(row);
+  }
+  return days;
+}
+
 /** Absolute filesystem path for a stored image, for the streaming route. */
 export async function getImagePath(id, ghId) {
   const r = await query(
