@@ -337,38 +337,123 @@ export default function ActivityPage({ events, loaded }) {
 }
 
 /**
- * Camera placeholder.
+ * Camera page — Phase 06 vision node.
  *
- * The vision node is a separate controller on its own WiFi connection, sharing
- * only the 5 V rail. It sits deliberately outside the control and authorisation
- * path, so nothing here talks to it — this reserves the layout and says why.
+ * The camera is a separate controller on its own WiFi connection, sharing only
+ * the 5 V rail. It sits deliberately outside the control and authorisation
+ * path: it can observe the enclosure, but nothing it sees can move an actuator.
+ *
+ * WHY THERE IS NO LIVE VIEW, and why "Capture now" does not produce an image
+ * immediately: the server CANNOT REACH THE CAMERA. The device sits behind NAT
+ * on its own network with no inbound port, so every exchange is the camera
+ * asking the server, never the server telling the camera. The button sets a
+ * flag; the camera discovers it on its own poll interval and uploads when it
+ * does. The UI has to say that honestly rather than showing a spinner that
+ * implies a request is in flight to a device nothing can contact.
  */
 export function CameraPage() {
+  const [latest, setLatest] = useState(null);
+  const [pending, setPending] = useState(null);
+  const [err, setErr] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [requesting, setRequesting] = useState(false);
+
+  // api.js never throws — every call resolves to { data, error }.
+  async function refresh() {
+    const [l, p] = await Promise.all([api.cameraLatest(), api.cameraPending()]);
+    if (l.error) setErr(l.error);
+    else { setErr(null); setLatest(l.data?.image ?? null); }
+    if (!p.error) setPending(p.data ?? null);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    refresh();
+    // Poll while a snapshot is outstanding so the page notices the upload
+    // landing without the operator reloading. 5s is well under the device's
+    // own poll interval, so the UI is never the slow part of the loop.
+    const t = setInterval(refresh, 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  async function onRequest() {
+    setRequesting(true);
+    const { error } = await api.requestSnapshot();
+    if (error) setErr(error);
+    setRequesting(false);
+    refresh();
+  }
+
+  const imgSrc = latest ? `/api/camera/image/${latest.id}` : null;
+  const waiting = pending?.requested === true;
+
   return (
     <>
       <div className="h">
         <h1>Camera</h1>
-        <span className="sub">Reserved for the vision phase</span>
+        <span className="sub">
+          {latest ? `Last image ${when(latest.captured_at)}` : 'No images yet'}
+        </span>
       </div>
+
+      {err && <div className="fielderr" style={{ marginBottom: 12 }}>{err}</div>}
 
       <div className="camgrid">
         <div className="camslot main">
-          <div className="camslot-in">
-            <b>Live view</b>
-            <span>Not connected</span>
-          </div>
+          {imgSrc ? (
+            <img
+              src={imgSrc}
+              alt={`Enclosure at ${when(latest.captured_at)}`}
+              style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+            />
+          ) : (
+            <div className="camslot-in">
+              <b>No image</b>
+              <span>{loading ? 'Loading…' : 'The camera has not uploaded yet'}</span>
+            </div>
+          )}
         </div>
+
         <div className="stack">
           <div className="camslot">
             <div className="camslot-in">
               <b>Last image</b>
-              <span>None captured</span>
+              {latest ? (
+                <span>
+                  {when(latest.captured_at)}
+                  <br />
+                  {(latest.file_size_bytes / 1024).toFixed(1)} KB · {latest.trigger}
+                  {latest.canopy_position !== null && (
+                    <>
+                      <br />
+                      canopy {latest.canopy_position}% ·{' '}
+                      {latest.photoperiod_active ? 'light on' : 'light off'}
+                    </>
+                  )}
+                </span>
+              ) : (
+                <span>None captured</span>
+              )}
             </div>
           </div>
+
           <div className="camslot">
             <div className="camslot-in">
               <b>Capture now</b>
-              <span>Unavailable</span>
+              {waiting ? (
+                <span>
+                  Requested — waiting for the camera to poll
+                </span>
+              ) : (
+                <>
+                  <button className="btn" onClick={onRequest} disabled={requesting}>
+                    {requesting ? 'Requesting…' : 'Request snapshot'}
+                  </button>
+                  <span style={{ marginTop: 6 }}>
+                    The camera collects this on its next poll
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -377,7 +462,9 @@ export function CameraPage() {
       <p className="muted" style={{ marginTop: 12, maxWidth: 620, lineHeight: 1.6 }}>
         The camera runs on its own controller with a separate network connection, sharing only
         power with the greenhouse controller. It is kept outside the control path on purpose: it
-        can observe the enclosure, but nothing it sees can move an actuator.
+        can observe the enclosure, but nothing it sees can move an actuator. Requesting a snapshot
+        sets a flag the camera picks up on its own schedule — the server cannot reach the device
+        directly.
       </p>
     </>
   );
