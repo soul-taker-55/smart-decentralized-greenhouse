@@ -9,6 +9,8 @@
 #include "sensors.h"
 #include "actuators.h"
 #include "estop.h"
+#include "config_store.h"
+#include "config_handler.h"
 #include "secrets.h"
 
 // ---- topics (v4 §1) ----
@@ -19,6 +21,7 @@
 #define T_ACK         T_BASE "up/ack"
 #define T_STATUS      T_BASE "status"
 #define T_DOWN_ALL    T_BASE "down/#"
+#define T_DOWN_CONFIG T_BASE "down/config"
 
 #define CLIENT_ID     "sdigf-edge-gh1"
 
@@ -57,9 +60,28 @@ static void addEnvelope(JsonDocument& d) {
   d["seq"] = envelopeNextSeq();
 }
 
-// ---- inbound: stage B attaches real handlers here ----
+// ---- inbound ----
+static bool publishAck(const ConfigOutcome& o);
+
 static void onMessage(char* topic, uint8_t* payload, unsigned int len) {
-  Serial.printf("[MQTT] rx %s (%u B) — no handler yet (stage B)\n", topic, len);
+  Serial.printf("[MQTT] rx %s (%u B)\n", topic, len);
+
+  if (strcmp(topic, T_DOWN_CONFIG) == 0) {
+    ConfigOutcome o = handleConfig(payload, len);
+    if (o.result == CFG_IGNORED) {
+      Serial.printf("[CFG] ignored: %s\n", o.detail);
+      return;                              // no ack for a cleared retained topic
+    }
+    if (o.result == CFG_ACCEPTED)
+      Serial.printf("[CFG] ACCEPTED ver %lu hash %.16s…\n", (unsigned long)o.ref_ver, o.ref_hash);
+    else
+      Serial.printf("[CFG] REJECTED %s field=%s — %s\n", o.code, o.field ? o.field : "-", o.detail);
+    publishAck(o);
+    if (o.result == CFG_ACCEPTED) publishHealth();   // retained cfg block must reflect the new version
+    return;
+  }
+
+  Serial.printf("[MQTT]   no handler for %s yet\n", topic);
 }
 
 // ---- connection ----
@@ -155,12 +177,19 @@ bool publishHealth() {
   d["fw"]       = FW_VERSION;
   // v4 §3.3: cfg.src = "none" on a fresh device is a DISTINCT state, not null.
   // No config has been received (stage B) and nothing is in NVS.
+  // v4 §3.3. cfg.src is load-bearing for the thesis: "nvs" after a reboot with
+  // no broker is the observable proof of edge autonomy. "none" is a distinct
+  // third state, not an absence.
+  const AppliedConfig& ac = configApplied();
   JsonObject cfg = d["cfg"].to<JsonObject>();
-  cfg["ver"]    = 0;
-  cfg["hash"]   = "";
-  cfg["src"]    = "none";
-  cfg["verify"] = "enforced";   // DEVICE-DECLARED. Stage C makes it true; declaring
-                                // it now states the intent this firmware is built to.
+  cfg["ver"]    = ac.ver;
+  if (ac.ver > 0) cfg["hash"] = ac.hash; else cfg["hash"] = nullptr;
+  cfg["src"]    = CFG_SRC_STR[ac.src];
+  // DEVICE-DECLARED, never server-supplied (§3.4). Stage B has no signature
+  // verification, so this MUST say "unsupported": the device applies configs
+  // on envelope grounds alone, exactly as v3 did. Stage C earns "enforced".
+  // Stage A wrongly declared "enforced" — corrected here; the record notes it.
+  cfg["verify"] = "unsupported";
   d["mqtt_reconnects"] = reconnects;
   d["boot_reason"]     = bootReason();
   return send(T_HEALTH, d, true, 0);
@@ -206,4 +235,35 @@ bool publishActuators() {
   c["pos"] = 0; c["target"] = 0; c["moving"] = false; c["src"] = "auto";
   d["vent"] = actuatorVentStage();
   return send(T_ACTUATORS, d, true, 1);
+}
+
+// v4 §3.4 — "the most important payload in the contract". ref = what was
+// received; applied = what is NOW running (on rejection, the previous config —
+// the edge never ends up running nothing).
+static bool publishAck(const ConfigOutcome& o) {
+  JsonDocument d;
+  addEnvelope(d);
+  JsonObject ref = d["ref"].to<JsonObject>();
+  ref["ver"] = o.ref_ver;
+  if (o.ref_hash[0]) ref["hash"] = o.ref_hash; else ref["hash"] = nullptr;
+
+  d["result"] = (o.result == CFG_ACCEPTED) ? "accepted" : "rejected";
+
+  const AppliedConfig& ac = configApplied();
+  JsonObject ap = d["applied"].to<JsonObject>();
+  ap["ver"] = ac.ver;
+  if (ac.ver > 0) ap["hash"] = ac.hash; else ap["hash"] = nullptr;
+
+  d["verify"] = "unsupported";                 // stage B; see publishHealth()
+  d["verified_by"].to<JsonArray>();            // empty — §3.4: empty when unsupported
+
+  if (o.result == CFG_ACCEPTED) {
+    d["reason"] = nullptr;
+  } else {
+    JsonObject r = d["reason"].to<JsonObject>();
+    r["code"]   = o.code;
+    if (o.field) r["field"] = o.field; else r["field"] = nullptr;
+    r["detail"] = o.detail;
+  }
+  return send(T_ACK, d, false, 1);
 }

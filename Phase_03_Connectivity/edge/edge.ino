@@ -1,6 +1,7 @@
 // SDIGF — edge controller firmware. ESP32-WROOM-32E.
 //
-// STAGE A: connectivity on bare silicon. Nothing wired but USB. Proves the
+// STAGE B: config reception, hash check, freshness, envelope, ack.
+// (Stage A: connectivity on bare silicon.) Nothing wired but USB. Proves the
 // device speaks contract v4 to the live broker: status with last will,
 // up/health, up/telemetry (all readings honestly "init"), up/actuators (all
 // off). Subscribes to down/# so stage B can attach handlers.
@@ -30,6 +31,7 @@
 #include "sensors.h"
 #include "estop.h"
 #include "mqtt_link.h"
+#include "config_store.h"
 
 // v4 §2: telemetry interval is FIXED at 30 s. Not a tuning knob.
 #define TELEMETRY_INTERVAL_MS  (30UL * 1000UL)
@@ -45,7 +47,7 @@ void setup() {
 
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n\n=== SDIGF edge " FW_VERSION " — stage A ===");
+  Serial.println("\n\n=== SDIGF edge " FW_VERSION " — stage B ===");
   Serial.printf("[SYS] boot: relays safe, e-stop %s (origin %s%s)\n",
                 estopGet().active ? "ACTIVE" : "clear",
                 estopGet().origin == ORIGIN_LOCAL ? "local" : "remote",
@@ -53,6 +55,12 @@ void setup() {
   Serial.printf("[SYS] heap %u  min %u\n", ESP.getFreeHeap(), ESP.getMinFreeHeap());
 
   sensorsInit();
+  configStoreInit();
+  {
+    const AppliedConfig& ac = configApplied();
+    Serial.printf("[CFG] applied: ver %lu src %s%s\n", (unsigned long)ac.ver, CFG_SRC_STR[ac.src],
+                  ac.src == CFG_SRC_NVS ? " (last-known-good restored from NVS)" : "");
+  }
   mqttInit();
 
   Serial.printf("[NET] joining %s\n", WIFI_SSID);

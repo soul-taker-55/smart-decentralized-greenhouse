@@ -10,7 +10,7 @@
 #pragma once
 #include <stdint.h>
 
-#define FW_VERSION "0.1.0-A"
+#define FW_VERSION "0.2.0-B"
 
 void mqttInit();       // sets buffer size, LWT, callback. Does not connect.
 void mqttLoop();       // call every loop(): maintains connection, pumps client
