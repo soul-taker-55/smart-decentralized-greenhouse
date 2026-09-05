@@ -6,8 +6,8 @@
 
 | Field | Value |
 |---|---|
-| Document version | 1.7 |
-| Date | 19 June 2026 |
+| Document version | 1.8 |
+| Date | 6 September 2026 |
 | Phase | 1 (hardware bring-up) |
 | Status | Wiring locked — ready to build |
 
@@ -31,6 +31,7 @@
    - 7.7 Servo Motor (MG996R)
    - 7.8 Human Interface (Rotary Encoder & LCD)
    - 7.9 Reserved Pins
+   - 7.10 Emergency-Stop Indicator LED
 8. [ESP32-CAM](#8-esp32-cam)
    - 8.1 Overview
    - 8.2 Power
@@ -38,6 +39,7 @@
    - 8.4 Data link to main controller
 9. [Boot Safety & Critical Design Notes](#9-boot-safety--critical-design-notes)
 10. [Bring-up & Verification Procedure](#10-bring-up--verification-procedure)
+11. [Revision History](#11-revision-history)
 11. [Appendix A — Master Pin Reference](#appendix-a--master-pin-reference)
 12. [Appendix B — Bill of Materials Summary](#appendix-b--bill-of-materials-summary)
 
@@ -89,7 +91,7 @@ The system also includes the **ESP32-CAM**, a separate camera node that runs its
 | No | Component | Qty | Power rail | Signal type | Function | Key notes |
 |----|-----------|-----|-----------|-------------|----------|-----------|
 | 1 | ESP32-WROOM-32E | 1 | 5 V → onboard 3.3 V reg | — (host) | Main edge controller | WiFi/BT; ADC2 unusable with WiFi |
-| 2 | ESP32-CAM | 1 | 5 V (shared) | — | Camera node (separate) | No data link to main ESP32; brownout-sensitive — decouple near 5 V pin |
+| 2 | ESP32-CAM | 1 | 5 V (shared) | — | Camera node (separate) | No data link to main ESP32; brownout-sensitive — decouple near 5 V pin. **Sensor is OV7670-class, not the labelled OV2640** (§8.1) |
 | 3 | BMP280 (RobotDyn 7-pin) | 2 | 3.3 V | I2C | Inner/outer temperature + pressure | Addr 0x76 / 0x77; **no humidity** |
 | 4 | DHT11 (3-pin module) | 2 | 3.3 V | Digital 1-wire | Inner/outer relative humidity | ±5 % RH, integer output (known weak) |
 | 5 | MQ135 gas sensor | 1 | **5 V** | Analog (5 V) | Air-quality / gas | Heater needs 5 V; **divider required**; 24–48 h burn-in |
@@ -101,6 +103,7 @@ The system also includes the **ESP32-CAM**, a separate camera node that runs its
 | 11 | Rotary encoder (EC11/KY-040) | 1 | 3.3 V | Digital | Local UI input | Needs pull-ups (internal used) |
 | 12 | 8-channel relay module | 1 | 5 V coils / 3.3 V logic | Digital (active-LOW) | Actuator switching | SONGLE SRD-05VDC; JD-VCC jumper |
 | 13 | MG996R servo | 1 | **5 V** | PWM (50 Hz) | Positional actuator | High-torque; stall ~2.5 A; only PWM load |
+| 14 | Emergency-stop LED + 220 Ω | 1 | 3.3 V (GPIO) | Digital out | Local halt indicator | On GPIO 2; lit while the edge's NVS e-stop flag is set (§7.10) |
 | 14 | DC fans (5 V) | 3 | 5 V (switched) | — (load) | Cooling + humidity exhaust | Staged ventilation (0–3 fans) |
 | 15 | DC pump | 1 | 5 V (switched) | — (load) | Irrigation | |
 | 16 | Ultrasonic humidifier | 1 | 5 V (switched) | — (load) | Humidity addition | Driver inrush — measure draw |
@@ -250,8 +253,8 @@ A single **common ground** ties together: S-25-5 GND, LM2596 input/output GND, E
 - **ADC1 fully used for analog:** GPIO 32, 34, 35, 36, 39 carry the analog sensors (MQ135, soil, water, LDR ×2) — a direct consequence of the ADC2-with-Wi-Fi restriction above.
 - **GPIO 33 borrowed as a digital input:** although it is an ADC1 pin, here it is the rotary-encoder switch (SW) — a digital input, not analog.
 - **Digital-input group:** encoder CLK/DT/SW on GPIO 13/14/33 and DHT11 ×2 on GPIO 26/27, all using internal pull-ups.
-- **Output group:** relay channels IN1–IN7 on GPIO 4, 5, 16, 17, 18, 19, 23, plus the MG996R servo PWM on GPIO 25.
-- **Strapping-pin exception — GPIO 5:** the one strapping pin we drive (a relay output). It is safe because it idles high (relay off) and its boot glitch only briefly affects a fan/light. GPIO 0, 2, 12, 15 are left unused. This is the single deliberate exception to the general "avoid strapping pins" rule.
+- **Output group:** relay channels IN1–IN7 on GPIO 4, 5, 16, 17, 18, 19, 23, the MG996R servo PWM on GPIO 25, and the emergency-stop indicator LED on GPIO 2.
+- **Strapping-pin exceptions — GPIO 5 and GPIO 2:** GPIO 5 is a relay output, safe because it idles high (relay off) and its boot glitch only briefly affects a fan. GPIO 2 drives the e-stop LED through 220 Ω to GND — the harmless strapping case, since a resistor to ground cannot pull the pin into a wrong boot level and a boot-time blip on an indicator LED has no consequence. GPIO 0, 12, 15 are left unused. These are the two deliberate exceptions to the general "avoid strapping pins" rule (§9).
 - **Relay boot-safety ties to the boot-mode rule:** every relay line gets a 10 kΩ pull-up to 3.3 V and is driven high first in firmware — pull-ups on driven pins are fine here precisely because they respect the required boot levels (see §9).
 - **I²C bus is shared:** GPIO 21/22 carry both BMP280s (3.3 V side) and the LCD (5 V side, via the level converter).
 
@@ -402,11 +405,35 @@ Configuration notes:
 |---|---|---|
 | GPIO 6–11 | **Unusable** | SPI flash |
 | GPIO 1, 3 | **Reserved** | UART0 — USB serial / programming |
-| GPIO 0, 2, 12, 15 | **Avoided** | Strapping pins (boot interference) |
+| GPIO 0, 12, 15 | **Avoided** | Strapping pins (boot interference) |
+| GPIO 2 | **Used (justified)** | Strapping pin; LED to GND is the harmless case (§7.10, §9) |
 | GPIO 5 | **Used (justified)** | Strapping pin; safe for a fan load (§9) |
 | 3V3 pin | **Do not drive** | Onboard-regulator output |
 
-All other usable GPIOs are assigned; no free full-GPIO pins remain after the servo on GPIO 25.
+All other usable GPIOs are assigned; no free full-GPIO pins remain after the servo on GPIO 25 and the LED on GPIO 2.
+
+---
+
+### 7.10 Emergency-Stop Indicator LED
+
+A single LED with a **220 Ω series resistor to GND on GPIO 2**, lit whenever the emergency stop is active and off otherwise. Added in v1.8 as the one physical change from v1.7.
+
+| Part | Connects to | Note |
+|---|---|---|
+| LED anode (+, longer leg) | **GPIO 2** | 3.3 V logic drives it directly (~5 mA at 220 Ω) |
+| LED cathode (−) | 220 Ω → common GND | Any standard 3 mm/5 mm LED; red preferred for "halted" |
+
+**What drives it.** The edge's own NVS-persisted e-stop flag — **no server involvement**. The indicator therefore stays truthful when the network is down, the server is compromised, or the dashboard is wrong: a halted greenhouse looks halted to anyone standing in front of it regardless of what any remote system claims. This is a small, concrete reinforcement of the edge-autonomy pillar.
+
+**Boot behaviour.** On boot the firmware reads the persisted flag and drives the LED **before anything else runs** — the same discipline as driving the relay pins HIGH first in `setup()`. If the greenhouse restarts while stopped, the light is on immediately.
+
+**Why GPIO 2 is safe here.** GPIO 2 is a strapping pin (it must be low or floating for the download-mode strap to work), but an LED through a resistor to ground is precisely the harmless case: it cannot pull the pin high at reset, and a brief output blip from the ROM bootloader does nothing worse than flicker an indicator. This is the same class of reasoning as the GPIO 5 relay justification in §9, with a lower-stakes load. Note that many ESP32 dev boards already carry an onboard LED on GPIO 2 for exactly this reason.
+
+**Honest limit.** The LED proves the *flag* is set. It cannot prove the actuators are actually off — a firmware bug could light the LED while a relay stays energised. It is an **indicator, not an interlock**. The interlock is the relay drive logic; the LED reports what the firmware believes.
+
+**Buzzer considered and rejected.** An audible alarm that cannot be silenced gets muted, taped over, or disconnected within a day; a timed buzzer adds a non-blocking timer to the one code path where blocking is least acceptable. If wanted later, it is an active buzzer through a transistor as its own small task, never bundled into the control firmware's critical path.
+
+**No contract change, no server change.** The LED is entirely internal to the edge.
 
 ---
 
@@ -416,7 +443,7 @@ The ESP32-CAM is the system's **second controller** — a camera node for the vi
 
 ### 8.1 Overview
 
-AI-Thinker ESP32-CAM: an ESP32 module with an OV2640 camera and a microSD slot, and an onboard 3.3 V regulator (so it accepts a 5 V supply). It runs its own firmware and joins Wi-Fi independently. It has **no USB port** — it is flashed through an external USB-to-TTL (FTDI) adapter (§8.3). None of its pins connect to the main controller.
+AI-Thinker ESP32-CAM: an ESP32 module with a camera header, a microSD slot, and an onboard 3.3 V regulator (so it accepts a 5 V supply). **The board is sold as carrying an OV2640; the unit in this build does not.** Phase 06 bring-up read sensor PID `0x2145` — an OV7670-class sensor with **no hardware JPEG encoder**. Frames are captured raw (RGB565) and compressed in software on the device (~7 KB per frame, ~100 ms). This is recorded in `Phase_06_Vision/PHASE_06_RECORD.md` §2; it changes nothing electrically but must not be misstated anywhere the hardware is listed. It runs its own firmware and joins Wi-Fi independently. It has **no USB port** — it is flashed through an external USB-to-TTL (FTDI) adapter (§8.3). None of its pins connect to the main controller.
 
 ### 8.2 Power
 
@@ -425,19 +452,24 @@ AI-Thinker ESP32-CAM: an ESP32 module with an OV2640 camera and a microSD slot, 
 | 5V | 5 V rail (S-25-5) | preferred input; onboard regulator produces 3.3 V |
 | GND | common GND | shared reference |
 
-The ESP32-CAM is **brownout-sensitive**: give it a short, solid 5 V feed and a decoupling capacitor (≥ 100 µF, 470 µF preferred) close to its 5 V pin. Transients on the shared rail (servo stall, pump inrush) can otherwise reset it. Never power it from the WROOM-32E's 3V3 pin.
+The ESP32-CAM is **brownout-sensitive**: give it a short, solid 5 V feed and a decoupling capacitor (≥ 100 µF, 470–1000 µF preferred) close to its 5 V pin. Transients on the shared rail (servo stall, pump inrush) can otherwise reset it. Never power it from the WROOM-32E's 3V3 pin.
+
+**Verified in Phase 06:** the brownout is real and reproducible. Powered from a USB-TTL adapter's 5 V pin, the board reset on the second HTTPS upload (`E BOD: Brownout detector was triggered`) — capture, software JPEG encode, TLS handshake and WiFi transmit coincide within a few hundred milliseconds. Moving the 5 V feed to the S-25-5 rail resolved it. See §8.3.
 
 ### 8.3 Programming (flashing)
 
 The board has no USB, so flashing uses a temporary USB-to-TTL adapter — a bench connection only, not part of the runtime wiring:
 
-| CAM pin | USB-TTL (FTDI) |
-|---|---|
-| 5V | 5V |
-| GND | GND |
-| U0T (GPIO 1) | RX |
-| U0R (GPIO 3) | TX |
-| GPIO 0 | GND — **only while flashing** |
+| CAM pin | Connects to | Note |
+|---|---|---|
+| 5V | **S-25-5 5 V rail** | **Not the FTDI's 5 V pin** — see below |
+| GND | common GND **and** FTDI GND | both; the FTDI ground is the serial reference |
+| U0T (GPIO 1) | FTDI RX | 3.3 V logic |
+| U0R (GPIO 3) | FTDI TX | 3.3 V logic |
+| GPIO 0 | GND — **only while flashing** | remove and reset to run |
+| FTDI 5V | **not connected** | never two supplies on one rail |
+
+**Why not the FTDI's 5 V (learned in Phase 06).** Flashing over FTDI power *works*; running the upload path over it does not — the board browns out under the combined capture + TLS + WiFi-TX load. Two other faults were traced to bench power in the same session: a 3.3 V feed instead of 5 V produced flash writes that reported success and verified against the same wrong MD5 every time (`Flash memory erased successfully in 0.0 seconds` was the tell); and leaving the FTDI ground disconnected once power moved to the rail produced unreadable serial. Power from the rail, share ground with the FTDI, leave the FTDI's 5 V open.
 
 Tie GPIO 0 to GND to enter download mode, upload the firmware, then remove that link and reset for normal operation.
 
@@ -452,10 +484,12 @@ None in this phase. The ESP32-CAM and the ESP32-WROOM-32E are not wired together
 **Relay boot safety.** Every ESP32 GPIO is high-impedance from reset until firmware runs. On an active-LOW board a floating input can drift LOW = relay ON. Three layers prevent this, mattering most for the 220 V grow light:
 
 1. **10 kΩ pull-up** from each IN line to the 3.3 V logic VCC — holds IN HIGH (OFF) during the float window.
-2. **Firmware drives every relay pin OUTPUT + HIGH as the first action in `setup()`**, before Serial, I2C, or WiFi.
+2. **Firmware drives every relay pin OUTPUT + HIGH as the first action in `setup()`**, before Serial, I2C, or WiFi. **Second action: read the NVS e-stop flag and drive the GPIO 2 LED** (§7.10). Everything else follows.
 3. Relays are kept off strapping pins (except GPIO 5, justified below).
 
 **GPIO 5 justification.** GPIO 5 is a strapping pin (SDIO slave timing), but that strap is irrelevant when booting from SPI flash, and it has an internal pull-up so it idles HIGH = relay OFF. Its only quirk is a possible brief output blip from the ROM bootloader before `setup()` runs. On the **Internal Fan**, a sub-second twitch at power-on is harmless — which is precisely why a fan, not the grow light, is assigned here.
+
+**GPIO 2 justification.** GPIO 2 is a strapping pin, but the e-stop LED is wired through 220 Ω to ground — the one load that cannot interfere with a strap: it never pulls the pin high, and the ROM bootloader's brief blip on an indicator is invisible in practice. It is the lowest-stakes pin use in the build and is placed on the strapping pin precisely so that a full-GPIO pin is not spent on it.
 
 **Servo at boot.** The firmware sets the MG996R to a known neutral angle (90°) at startup. The 5 V rail must tolerate the servo's transient current — the bulk capacitor at the servo (§7.7) is mandatory, not optional.
 
@@ -472,6 +506,7 @@ None in this phase. The ESP32-CAM and the ESP32-WROOM-32E are not wired together
 The test sketch (`greenhouse_phase1_bringup.ino`) reads every sensor, sweeps the servo, and toggles each relay over Serial, with no control logic. Recommended order — each step isolates a class of fault before the next:
 
 1. **Power rails first.** Set the LM2596 to 3.30 V (multimeter, no devices attached). Confirm 5 V and 3.3 V rails and common ground.
+1a. **E-stop LED.** Wire the LED + 220 Ω on GPIO 2. Command `e` toggles it. Power-cycle three times: it must come up in the state the flag was left in, and must not flicker on when the flag is clear.
 2. **I2C subsystem.** Wire the two BMP280s and the LCD (via level converter). Flash the sketch; the startup **I2C scan** must report `0x76`, `0x77`, and the LCD address. A missing BMP280 points directly at its SDO/CS wiring.
 3. **Analog modules.** Add the LDRs, soil, water, and MQ135 (with divider). Confirm raw values respond. The MQ135 needs burn-in before its reading settles.
 4. **Digital inputs.** Add the DHT11s and the encoder; confirm humidity reads and the encoder position/button track.
@@ -479,7 +514,7 @@ The test sketch (`greenhouse_phase1_bringup.ino`) reads every sensor, sweeps the
 6. **Servo.** Wire the MG996R (with bulk capacitor). Command the sweep and confirm smooth full-range motion with no rail brownout (the LCD/sensors should not glitch during motion).
 7. **Mains last.** Only after CH7 has been verified silent through several resets, wire the 220 V grow light and confirm switching via command `7`.
 
-Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `x` all off, `s` re-scan I2C, `h` help.
+Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `e` toggle e-stop LED, `x` all off, `s` re-scan I2C, `h` help.
 
 ---
 
@@ -507,11 +542,12 @@ Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `x` al
 | GPIO 4 | digital out | Relay IN6 — Normal Lights | logic 3.3 V |
 | GPIO 23 | digital out | Relay IN7 — Grow light (220 V) | logic 3.3 V |
 | GPIO 25 | PWM out | MG996R servo — signal | 5 V (servo power) |
+| GPIO 2 | digital out | E-stop indicator LED — anode, 220 Ω to GND | logic 3.3 V (strapping, safe) |
 | 5V | power in | 5 V rail (standalone) / USB (bench) | — |
 | 3V3 | — | do not drive | — |
 | GND | ground | common ground node | — |
 
-**Reserved/unusable:** GPIO 6–11 (flash), 1/3 (UART0), 0/2/12/15 (strapping).
+**Reserved/unusable:** GPIO 6–11 (flash), 1/3 (UART0), 0/12/15 (strapping). GPIO 2 and 5 are strapping pins used with justification (§9).
 
 **ESP32-CAM:** separate node — no pins on the ESP32-WROOM-32E are allocated to it.
 
@@ -526,8 +562,18 @@ Serial: 115200 baud. Commands: `1`–`7` toggle a relay, `v` sweep servo, `x` al
 | Interface | 16×2 I2C LCD ×1, rotary encoder ×1, level converter ×1 |
 | Actuation | 8-ch relay ×1, MG996R servo ×1; loads: 3× DC fan, pump, ultrasonic humidifier, LED string, 220 V grow light |
 | Power | S-25-5 PSU (5 V/5 A) ×1, LM2596/HW-411 buck ×1 |
-| Passives | 2.2 kΩ ×1, 3.3 kΩ ×1 (MQ135 divider); 10 kΩ ×7 (relay pull-ups); 470–1000 µF ×1 (servo bulk cap) |
+| Passives | 2.2 kΩ ×1, 3.3 kΩ ×1 (MQ135 divider); 10 kΩ ×7 (relay pull-ups); 220 Ω ×1 (e-stop LED); 470–1000 µF ×2 (servo bulk cap, ESP32-CAM decoupling) |
+| Indicators | LED ×1 (e-stop, GPIO 2) |
 
 ---
 
 *End of document — Phase 1 wiring locked.*
+
+---
+
+## 11. Revision History
+
+| Version | Date | Change |
+|---|---|---|
+| 1.7 | 19 June 2026 | Wiring locked. Baseline for the physical build. |
+| 1.8 | 6 September 2026 | **One physical addition:** emergency-stop indicator LED on GPIO 2, 220 Ω to GND (§7.10, §7.2, §7.9, §9, §10, Appendix A/B). **Two corrections from Phase 06 bring-up, no wiring change:** §8.1 — the ESP32-CAM's sensor is OV7670-class (PID `0x2145`), not the labelled OV2640, and has no hardware JPEG encoder; §8.2–8.3 — the CAM must be powered from the S-25-5 rail, not a USB-TTL adapter's 5 V pin, with the adapter's ground shared; brownout under upload load and a 3.3 V flash-verify failure were both reproduced on the bench. |
